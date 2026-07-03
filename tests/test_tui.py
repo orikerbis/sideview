@@ -164,6 +164,25 @@ def main():
     out = drain(fd, 0.8)
     check("mouse events no crash", b"Traceback" not in out)
 
+    # --- changes view: D lists changed files with live diff preview ---
+    os.write(fd, b"D")
+    ok, _ = wait_for(fd, b"@@")            # diff of app.py (first changed)
+    check("changes view shows diff", ok)
+    open(f"{repo}/app.py", "a").write("print('live')\n")   # agent edit
+    ok, _ = wait_for(fd, b"live")          # preview picks it up on its own
+    check("changes view updates live", ok)
+
+    # --- Tab focus: j scrolls the preview instead of the tree ---
+    os.write(fd, b"\t")
+    ok, _ = wait_for(fd, "▶".encode())     # focus marker on preview title
+    check("tab focuses preview", ok)
+    os.write(fd, b"jj\t")                  # scroll, then focus back
+    out = drain(fd, 0.5)
+    check("preview scroll no crash", b"Traceback" not in out)
+    os.write(fd, b"\x1b")                  # Esc leaves changes view
+    ok, _ = wait_for(fd, b"README.md")     # full tree is back
+    check("esc exits changes view", ok)
+
     # --- copy mode: m toggles terminal mouse tracking off/on ---
     os.write(fd, b"m")
     ok, _ = wait_for(fd, b"\x1b[?1002l")

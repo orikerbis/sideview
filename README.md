@@ -13,6 +13,11 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 - **Preview pane** with line numbers and lightweight **syntax highlighting**
   (python, shell, js/ts, json/tfstate, yaml, terraform, dockerfile, …),
   or the file's **git diff** (`d`); resize the split with `<` / `>`
+- **Changes view** (`D`): only your modified/staged/untracked files, with
+  a live diff preview that updates as files change on disk — watch an AI
+  agent's edits land in real time; `[` / `]` jump between hunks
+- **Pane focus** (`Tab`): move focus to the preview so `j/k`, `gg/G`,
+  `Ctrl-d/u` scroll the file instead of the tree
 - **Fuzzy file finder** (`/`) — subsequence matching like an IDE quick-open
 - **Edit in Neovim/vim**: `Enter` suspends the TUI and opens the file in
   `$EDITOR` (defaults to `nvim` when installed, else `vim`)
@@ -56,6 +61,9 @@ or split your iTerm2/Terminal window and run it there.
 | `Enter` | open dir, or edit file in `$EDITOR` |
 | `e` | edit file (even from search results) |
 | `/` | fuzzy find file (`Enter` open, `Esc` cancel) |
+| `D` | changes view: changed files + live diff preview (`Esc` exits) |
+| `[` / `]` | previous / next diff hunk |
+| `Tab` | focus tree ↔ preview (focused pane gets j/k, gg/G, Ctrl-d/u) |
 | `d` | toggle git-diff view in preview |
 | `p` | toggle preview pane |
 | `<` / `>` | make the tree pane narrower / wider |

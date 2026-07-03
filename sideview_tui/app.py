@@ -36,6 +36,8 @@ class App:
         self.mouse_on = True   # m toggles: off = terminal-native selection
         self.psel = None       # [start, end] line selection in the preview
         self.psel_active = False
+        self.focus = "tree"    # Tab toggles: "tree" | "preview"
+        self.changes = False   # D: changed-files view with diff preview
         self.diff_mode = False
         self.sel = 0
         self.scroll = 0
@@ -67,6 +69,13 @@ class App:
         return keep
 
     def build_visible(self):
+        if self.changes:
+            self.visible = [
+                Node(os.path.join(self.root, rel), rel, rel, False, 0)
+                for rel in sorted(self.git.files)
+            ]
+            self.sel = min(self.sel, max(0, len(self.visible) - 1))
+            return
         if self.filter:
             self.visible = self.search(self.filter)
             self.sel = min(self.sel, max(0, len(self.visible) - 1))
@@ -121,7 +130,9 @@ class App:
         try:
             mtime = os.stat(node.path).st_mtime
         except OSError:
-            return ["(unreadable)"]
+            mtime = 0  # deleted file: diff view can still show its removal
+            if not (self.diff_mode and self.git.code(node.rel)):
+                return ["(unreadable)"]
         key = (node.path, mtime, self.diff_mode)
         if self.preview_cache and self.preview_cache[0] == key:
             return self.preview_cache[1]

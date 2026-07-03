@@ -13,6 +13,11 @@ Keys:
     Enter or e      edit file in $EDITOR
     Ctrl-d/Ctrl-u   half page down/up
     /               fuzzy find file (Enter open, Esc cancel)
+    D               changes view: only modified files, live diff preview
+                    (updates as files change on disk, e.g. by an AI agent)
+    [ / ]           previous / next hunk in a diff
+    Tab             switch focus: tree <-> preview (j/k etc. scroll the
+                    focused pane)
     d               toggle diff view in preview
     p               toggle preview pane
     < / >           make the tree pane narrower / wider
@@ -173,6 +178,38 @@ def main(stdscr, root):
         node = app.selected()
         if ch in (ord("q"), 3):
             break
+        elif ch == 9:                              # Tab: switch pane focus
+            app.focus = "preview" if app.focus == "tree" else "tree"
+        elif app.focus == "preview" and ch in (
+                ord("j"), curses.KEY_DOWN, ord("k"), curses.KEY_UP,
+                ord("g"), ord("G"), 4, 21):
+            h, _ = stdscr.getmaxyx()
+            if ch in (ord("j"), curses.KEY_DOWN):
+                app.pscroll += 1
+            elif ch in (ord("k"), curses.KEY_UP):
+                app.pscroll = max(0, app.pscroll - 1)
+            elif ch == ord("g"):
+                if app.pending_g:
+                    app.pscroll, app.pending_g = 0, False
+                else:
+                    app.pending_g = True
+                    continue
+            elif ch == ord("G"):
+                app.pscroll = 1 << 30  # draw() clamps to the last page
+            elif ch == 4:
+                app.pscroll += (h - 4) // 2
+            elif ch == 21:
+                app.pscroll = max(0, app.pscroll - (h - 4) // 2)
+        elif ch in (ord("["), ord("]")):           # jump between diff hunks
+            lines = app.preview_lines(node)
+            hunks = [i for i, l in enumerate(lines) if l.startswith("@@")]
+            if hunks:
+                if ch == ord("]"):
+                    nxt = [i for i in hunks if i > app.pscroll]
+                    app.pscroll = nxt[0] if nxt else hunks[0]
+                else:
+                    prev = [i for i in hunks if i < app.pscroll]
+                    app.pscroll = prev[-1] if prev else hunks[-1]
         elif ch in (ord("j"), curses.KEY_DOWN):
             app.sel = min(app.sel + 1, max(0, len(app.visible) - 1))
             app.pscroll = 0
@@ -194,6 +231,12 @@ def main(stdscr, root):
         elif ch == 21:                             # Ctrl-u
             h, _ = stdscr.getmaxyx()
             app.sel = max(app.sel - (h - 2) // 2, 0)
+        elif ch == ord("D"):                       # changed-files (diff) view
+            app.changes = not app.changes
+            app.diff_mode = app.changes
+            app.sel, app.pscroll = 0, 0
+            app.preview_cache = None
+            app.build_visible()
         elif ch in (ord("l"), curses.KEY_RIGHT):
             if node and node.is_dir:
                 app.expanded.add(node.rel)
@@ -213,7 +256,10 @@ def main(stdscr, root):
         elif ch == ord("/"):
             app.filter_input, app.filter, app.sel = True, "", 0
             app.build_visible()
-        elif ch == 27:                             # Esc clears filter
+        elif ch == 27:                             # Esc: leave changes/filter
+            if app.changes:
+                app.changes = app.diff_mode = False
+                app.sel = app.pscroll = 0
             app.filter = ""
             app.build_visible()
         elif ch == ord("d"):

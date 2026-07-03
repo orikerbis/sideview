@@ -55,12 +55,16 @@ def draw(stdscr, app):
         s, u, t = app.git.counts()
         parts = [f"{n}{lbl}" for n, lbl in ((s, "●"), (u, "±"), (t, "?")) if n]
         info += "  " + (" ".join(parts) if parts else "✔")
-    room = w - cells(info) - 4
+    badge = " CHANGES " if app.changes else ""
+    room = w - cells(info) - cells(badge) - 4
     if len(disp) > room:
         disp = "…" + disp[-(max(room, 8) - 1):]
     put(stdscr, 0, 0, " " * w, curses.color_pair(theme.C_HEAD))
     put(stdscr, 0, 1, disp,
         curses.color_pair(theme.C_HEAD) | curses.A_BOLD, room + 1)
+    if badge:
+        put(stdscr, 0, 2 + cells(disp), badge,
+            curses.color_pair(theme.C_MSG) | curses.A_BOLD)
     put(stdscr, 0, max(0, w - cells(info) - 1), info,
         curses.color_pair(theme.C_HEADGIT) | curses.A_BOLD)
 
@@ -120,6 +124,11 @@ def draw(stdscr, app):
         lines = app.preview_lines(node)
         app.pscroll = max(0, min(app.pscroll, max(0, len(lines) - body_h + 2)))
         if node:
+            x = px
+            if app.focus == "preview":
+                put(stdscr, 1, x, "▶ ",
+                    curses.color_pair(theme.C_MSG) | curses.A_BOLD)
+                x += 2
             cls = icons.classify(node.name, node.is_dir,
                                  node.rel in app.expanded)
             t_icon = icons.icon_for(node.name, node.is_dir,
@@ -127,11 +136,11 @@ def draw(stdscr, app):
             i_attr = (theme.ICON_PAIRS.get(cls, (0, 0))[0]
                       if theme.ICON_PAIRS
                       else curses.color_pair(theme.C_TITLE))
-            put(stdscr, 1, px, t_icon, i_attr, pw)
-            put(stdscr, 1, px + cells(t_icon),
+            put(stdscr, 1, x, t_icon, i_attr, pw)
+            put(stdscr, 1, x + cells(t_icon),
                 node.rel + ("  [diff]" if app.diff_mode else ""),
                 curses.color_pair(theme.C_TITLE) | curses.A_BOLD,
-                pw - cells(t_icon))
+                pw - cells(t_icon) - (x - px))
         put(stdscr, 2, px, "─" * pw, curses.color_pair(theme.C_DIM))
         lang = syntax.detect(node.name) if node and not node.is_dir else None
         sel_range = sorted(app.psel) if app.psel else None
@@ -192,11 +201,16 @@ def draw(stdscr, app):
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
         elif not app.mouse_on:
             put(stdscr, h - 1, 1,
-                "COPY MODE — select text with the mouse · m turns mouse back on",
+                "COPY MODE selects the WHOLE terminal — for file text only,"
+                " press m, then drag inside the preview",
+                curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 12)
+        elif app.changes:
+            put(stdscr, h - 1, 1,
+                "CHANGES  j/k file  [ ] hunks  ⇥ focus  ⏎ edit  Esc back",
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 12)
         else:
             put(stdscr, h - 1, 1,
-                "⏎ open  / find  y path  m copy  <> size  . hidden  q quit",
+                "⏎ open  / find  D changes  ⇥ focus  y path  m copy  q quit",
                 curses.color_pair(theme.C_BAR), w - 12)
         pos = f"{min(app.sel + 1, len(app.visible))}/{len(app.visible)}"
         put(stdscr, h - 1, max(0, w - len(pos) - 1), pos,
