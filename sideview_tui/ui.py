@@ -134,11 +134,18 @@ def draw(stdscr, app):
                 pw - cells(t_icon))
         put(stdscr, 2, px, "─" * pw, curses.color_pair(theme.C_DIM))
         lang = syntax.detect(node.name) if node and not node.is_dir else None
+        sel_range = sorted(app.psel) if app.psel else None
         for row in range(2, body_h):
             i = app.pscroll + row - 2
             if i >= len(lines):
                 break
             ln = lines[i].replace("\t", "    ")
+            if sel_range and sel_range[0] <= i <= sel_range[1] \
+                    and not app.diff_mode:
+                put(stdscr, 1 + row, px, " " * pw, theme.SEL_ATTR)
+                put(stdscr, 1 + row, px, "%4d " % (i + 1) + ln,
+                    theme.SEL_ATTR, pw)
+                continue
             if app.diff_mode:
                 attr = curses.color_pair(theme.C_TEXT)
                 if ln.startswith("+") and not ln.startswith("+++"):

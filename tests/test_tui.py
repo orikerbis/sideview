@@ -95,6 +95,17 @@ def wait_exit(pid, fd, timeout=5):
 def main():
     repo = make_fixture()
 
+    # fake pbcopy so tests don't clobber the real clipboard (outside the
+    # fixture repo so it doesn't appear in the tree)
+    auxdir = tempfile.mkdtemp(prefix="sideview-test-aux-")
+    bindir = os.path.join(auxdir, "bin")
+    os.makedirs(bindir)
+    clipfile = os.path.join(auxdir, "clip.txt")
+    with open(os.path.join(bindir, "pbcopy"), "w") as f:
+        f.write("#!/bin/sh\ncat > %s\n" % clipfile)
+    os.chmod(os.path.join(bindir, "pbcopy"), 0o755)
+    os.environ["PATH"] = bindir + ":" + os.environ["PATH"]
+
     # --- startup, icons, header ---
     pid, fd = spawn(repo)
     ok, raw_b = wait_for(fd, "⎇ main".encode())
@@ -121,6 +132,21 @@ def main():
     os.write(fd, b"j")               # src/ -> util.py
     ok, _ = wait_for(fd, b"38;5;141m")   # tokyonight keyword magenta
     check("syntax keyword colored", ok)
+
+    # --- mouse drag in preview: selects lines, copies on release ---
+    def m(cb, x, y):  # X10: ESC [ M Cb Cx Cy, all offset by 32, 1-based
+        return bytes([0x1b, ord("["), ord("M"), 32 + cb, 33 + x, 33 + y])
+    px = int(80 * 0.42) + 1            # preview x at default split
+    os.write(fd, m(0, px + 10, 3))     # press on preview line 1
+    time.sleep(0.3)                    # hold past mouseinterval (150ms)
+    os.write(fd, m(32, px + 10, 4))    # drag down to line 2
+    time.sleep(0.1)
+    os.write(fd, m(3, px + 10, 4))     # release -> copy
+    ok, _ = wait_for(fd, b"copied 2 line")
+    check("preview drag-select copies", ok)
+    clip = open(clipfile).read() if os.path.exists(clipfile) else ""
+    check("clipboard has selected lines",
+          "def f():" in clip and "return 1" in clip)
 
     # --- resize split: smoke test (q exiting cleanly proves it survived) ---
     os.write(fd, b">><")

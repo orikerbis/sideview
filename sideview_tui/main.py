@@ -21,7 +21,8 @@ Keys:
                     select/copy text natively; m again re-enables mouse
     y / Y           copy selected file's path / contents to clipboard
     mouse           click select, double-click open, wheel scroll,
-                    drag the pane separator to resize
+                    drag the pane separator to resize; drag over preview
+                    lines to select them — copied to clipboard on release
     .               toggle hidden files
     r               refresh
     q               quit
@@ -73,8 +74,31 @@ def handle_mouse(stdscr, app):
             app.dragging = False
         app.split = min(0.80, max(0.20, mx / max(w, 1)))
         return
+
+    # drag in the preview pane: select lines, copy on release
+    if app.psel_active:
+        app.psel[1] = max(0, app.pscroll + my - 3)
+        if bstate & curses.BUTTON1_RELEASED:
+            app.psel_active = False
+            node = app.selected()
+            if node and not node.is_dir:
+                lines = app.preview_lines(node)
+                a, b = sorted(app.psel)
+                b = min(b, len(lines) - 1)
+                text = "\n".join(lines[a:b + 1])
+                if text and clipboard(text):
+                    app.message = "copied %d line(s)" % (b - a + 1)
+            app.psel = None
+        return
+
     if split and bstate & curses.BUTTON1_PRESSED and abs(mx - sep) <= 1:
         app.dragging = True
+        return
+    if split and mx > sep + 1 and 3 <= my <= h - 2 \
+            and bstate & curses.BUTTON1_PRESSED:
+        line = app.pscroll + my - 3
+        app.psel = [line, line]
+        app.psel_active = True
         return
 
     # scroll wheel: preview pane on the right, tree on the left

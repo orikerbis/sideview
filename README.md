@@ -64,6 +64,7 @@ or split your iTerm2/Terminal window and run it there.
 | `r` | refresh |
 | `q` / `Ctrl-C` | quit |
 | mouse | drag separator = resize, click = select, double-click = open, wheel = scroll |
+| mouse drag in preview | select lines (highlighted), copied to clipboard on release |
 | `m` | copy mode: frees the mouse for terminal-native text selection |
 | `y` / `Y` | copy selected file's path / contents to clipboard |
 
