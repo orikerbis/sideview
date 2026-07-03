@@ -17,6 +17,9 @@ Keys:
     p               toggle preview pane
     < / >           make the tree pane narrower / wider
     J/K             scroll preview
+    m               copy mode: release the mouse so the terminal can
+                    select/copy text natively; m again re-enables mouse
+    y / Y           copy selected file's path / contents to clipboard
     mouse           click select, double-click open, wheel scroll,
                     drag the pane separator to resize
     .               toggle hidden files
@@ -34,6 +37,25 @@ from .app import App
 from .ui import draw, layout
 
 BUTTON5 = getattr(curses, "BUTTON5_PRESSED", 0x200000)
+
+
+def set_mouse(on):
+    if on:
+        curses.mousemask(curses.ALL_MOUSE_EVENTS
+                         | curses.REPORT_MOUSE_POSITION)
+        os.write(sys.stdout.fileno(), b"\x1b[?1002h")
+    else:
+        curses.mousemask(0)
+        os.write(sys.stdout.fileno(), b"\x1b[?1002l")
+
+
+def clipboard(text):
+    try:
+        import subprocess
+        subprocess.run(["pbcopy"], input=text.encode(), timeout=2)
+        return True
+    except Exception:
+        return False
 
 
 def handle_mouse(stdscr, app):
@@ -89,9 +111,8 @@ def main(stdscr, root):
     curses.raw()  # deliver Ctrl-C as a key (handled as quit), not SIGINT
     curses.curs_set(0)
     stdscr.timeout(1000)
-    curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
     curses.mouseinterval(150)  # allow double-click detection
-    os.write(sys.stdout.fileno(), b"\x1b[?1002h")  # motion-while-pressed
+    set_mouse(True)
     app = App(root)
     app.build_visible()
 
@@ -181,6 +202,23 @@ def main(stdscr, root):
             app.split = max(0.20, round(app.split - 0.06, 2))
         elif ch == ord(">"):
             app.split = min(0.80, round(app.split + 0.06, 2))
+        elif ch == ord("m"):
+            app.mouse_on = not app.mouse_on
+            set_mouse(app.mouse_on)
+            if app.mouse_on:
+                app.message = "mouse on"
+        elif ch == ord("y"):
+            if node and clipboard(node.path):
+                app.message = "copied path: " + node.rel
+        elif ch == ord("Y"):
+            if node and not node.is_dir:
+                try:
+                    text = open(node.path, "rb").read().decode(
+                        "utf-8", "replace")
+                except OSError:
+                    text = None
+                if text is not None and clipboard(text):
+                    app.message = "copied contents: " + node.rel
         elif ch == ord("J"):
             app.pscroll += 3
         elif ch == ord("K"):

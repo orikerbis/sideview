@@ -138,6 +138,14 @@ def main():
     out = drain(fd, 0.8)
     check("mouse events no crash", b"Traceback" not in out)
 
+    # --- copy mode: m toggles terminal mouse tracking off/on ---
+    os.write(fd, b"m")
+    ok, _ = wait_for(fd, b"\x1b[?1002l")
+    check("copy mode disables mouse tracking", ok)
+    os.write(fd, b"m")
+    ok, _ = wait_for(fd, b"\x1b[?1002h")
+    check("m re-enables mouse tracking", ok)
+
     os.write(fd, b"q")
     status, _ = wait_exit(pid, fd)
     check("q clean exit", status == 0)
