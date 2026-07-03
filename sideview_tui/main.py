@@ -17,6 +17,8 @@ Keys:
     p               toggle preview pane
     < / >           make the tree pane narrower / wider
     J/K             scroll preview
+    mouse           click select, double-click open, wheel scroll,
+                    drag the pane separator to resize
     .               toggle hidden files
     r               refresh
     q               quit
@@ -29,7 +31,57 @@ import time
 
 from . import theme
 from .app import App
-from .ui import draw
+from .ui import draw, layout
+
+BUTTON5 = getattr(curses, "BUTTON5_PRESSED", 0x200000)
+
+
+def handle_mouse(stdscr, app):
+    try:
+        _, mx, my, _, bstate = curses.getmouse()
+    except curses.error:
+        return
+    h, w = stdscr.getmaxyx()
+    split, tree_w = layout(app, w)
+    sep = tree_w - 1
+
+    # drag the separator to resize the panes
+    if app.dragging:
+        if bstate & curses.BUTTON1_RELEASED:
+            app.dragging = False
+        app.split = min(0.80, max(0.20, mx / max(w, 1)))
+        return
+    if split and bstate & curses.BUTTON1_PRESSED and abs(mx - sep) <= 1:
+        app.dragging = True
+        return
+
+    # scroll wheel: preview pane on the right, tree on the left
+    if bstate & curses.BUTTON4_PRESSED:
+        if split and mx >= tree_w:
+            app.pscroll = max(0, app.pscroll - 3)
+        else:
+            app.sel = max(0, app.sel - 3)
+        return
+    if bstate & BUTTON5:
+        if split and mx >= tree_w:
+            app.pscroll += 3
+        else:
+            app.sel = min(app.sel + 3, max(0, len(app.visible) - 1))
+        return
+
+    # click in the tree: select; double-click: open (dir toggle / edit)
+    if mx < tree_w and 1 <= my <= h - 2:
+        idx = app.scroll + my - 1
+        if idx < len(app.visible):
+            app.sel = idx
+            app.pscroll = 0
+            if bstate & curses.BUTTON1_DOUBLE_CLICKED:
+                node = app.visible[idx]
+                if node.is_dir:
+                    app.toggle_dir(node)
+                else:
+                    app.edit(stdscr, node)
+                app.build_visible()
 
 
 def main(stdscr, root):
@@ -37,6 +89,9 @@ def main(stdscr, root):
     curses.raw()  # deliver Ctrl-C as a key (handled as quit), not SIGINT
     curses.curs_set(0)
     stdscr.timeout(1000)
+    curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+    curses.mouseinterval(150)  # allow double-click detection
+    os.write(sys.stdout.fileno(), b"\x1b[?1002h")  # motion-while-pressed
     app = App(root)
     app.build_visible()
 
@@ -50,6 +105,11 @@ def main(stdscr, root):
                 app.git.refresh()
                 app.last_git = time.time()
                 app.preview_cache = None
+                app.build_visible()  # pick up created/deleted files
+            continue
+
+        if ch == curses.KEY_MOUSE:
+            handle_mouse(stdscr, app)
             continue
 
         if app.filter_input:
@@ -152,3 +212,5 @@ def cli():
         curses.wrapper(main, root)
     except KeyboardInterrupt:
         pass
+    finally:
+        os.write(sys.stdout.fileno(), b"\x1b[?1002l")  # mouse tracking off

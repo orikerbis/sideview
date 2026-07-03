@@ -32,6 +32,7 @@ class App:
         self.show_hidden = False
         self.preview_on = True
         self.split = 0.42  # tree pane fraction of the width; < > adjust
+        self.dragging = False  # mouse-dragging the pane separator
         self.diff_mode = False
         self.sel = 0
         self.scroll = 0

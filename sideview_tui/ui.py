@@ -15,6 +15,13 @@ def put(win, y, x, text, attr=0, maxw=None):
         pass
 
 
+def layout(app, w):
+    """Shared pane geometry: (split_visible, tree_width)."""
+    split = app.preview_on and w >= 60 and not app.filter_input
+    tree_w = max(24, min(int(w * app.split), w - 26)) if split else w
+    return split, tree_w
+
+
 def draw_scrollbar(stdscr, x, top, height, total, offset):
     if total <= height:
         return
@@ -58,8 +65,7 @@ def draw(stdscr, app):
         curses.color_pair(theme.C_HEADGIT) | curses.A_BOLD)
 
     body_h = h - 2
-    split = app.preview_on and w >= 60 and not app.filter_input
-    tree_w = max(24, min(int(w * app.split), w - 26)) if split else w
+    split, tree_w = layout(app, w)
 
     if app.sel < app.scroll:
         app.scroll = app.sel

@@ -127,6 +127,17 @@ def main():
     out = drain(fd, 0.8)
     check("resize keys no crash", b"Traceback" not in out)
 
+    # --- mouse: drag separator + click row (X10 encoding, 80x30 pane) ---
+    def m(cb, x, y):  # X10: ESC [ M Cb Cx Cy, all offset by 32, 1-based
+        return bytes([0x1b, ord("["), ord("M"), 32 + cb, 33 + x, 33 + y])
+    sep = max(24, min(int(80 * 0.42), 54)) - 1
+    os.write(fd, m(0, sep, 10))       # press button1 on separator
+    os.write(fd, m(32, sep + 6, 10))  # drag right (motion-while-pressed)
+    os.write(fd, m(3, sep + 6, 10))   # release
+    os.write(fd, m(0, 3, 2) + m(3, 3, 2))  # click row 2 in the tree
+    out = drain(fd, 0.8)
+    check("mouse events no crash", b"Traceback" not in out)
+
     os.write(fd, b"q")
     status, _ = wait_exit(pid, fd)
     check("q clean exit", status == 0)

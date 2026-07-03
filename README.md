@@ -18,6 +18,10 @@ live in a side terminal pane next to your editor. Pure Python stdlib
   `$EDITOR` (defaults to `nvim` when installed, else `vim`)
 - **Dark 256-color theme** matching **tokyonight-night** (the LazyVim
   default) with graceful 8-color fallback
+- **Mouse support**: drag the pane separator to resize, click to select,
+  double-click to open, scroll wheel in both panes
+- **Live updates**: preview re-reads changed files (~1s); git status and
+  the tree pick up new/deleted files every ~3s
 - **VSCode-style file icons**: colored Nerd Font glyphs by default,
   emoji fallback for terminals without a Nerd Font
 
@@ -59,6 +63,7 @@ or split your iTerm2/Terminal window and run it there.
 | `.` | show hidden files |
 | `r` | refresh |
 | `q` / `Ctrl-C` | quit |
+| mouse | drag separator = resize, click = select, double-click = open, wheel = scroll |
 
 ## Configuration
 
