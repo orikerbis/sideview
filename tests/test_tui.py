@@ -164,10 +164,14 @@ def main():
     out = drain(fd, 0.8)
     check("mouse events no crash", b"Traceback" not in out)
 
-    # --- changes view: D lists changed files with live diff preview ---
+    # --- changes view: D shows one repo-wide diff, untracked included ---
     os.write(fd, b"D")
-    ok, _ = wait_for(fd, b"@@")            # diff of app.py (first changed)
+    ok, buf = wait_for(fd, b"@@")          # hunks of the repo diff
     check("changes view shows diff", ok)
+    if b"+todo" not in buf:                # same frame, may need a moment
+        _, extra = wait_for(fd, b"+todo", timeout=3)
+        buf += extra
+    check("repo diff includes untracked", b"+todo" in buf)
     open(f"{repo}/app.py", "a").write("print('live')\n")   # agent edit
     ok, _ = wait_for(fd, b"live")          # preview picks it up on its own
     check("changes view updates live", ok)

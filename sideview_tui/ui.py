@@ -121,9 +121,19 @@ def draw(stdscr, app):
                     curses.color_pair(theme.C_DIM))
         px, pw = tree_w + 1, w - tree_w - 2
         node = app.selected()
-        lines = app.preview_lines(node)
+        lines = (app.repo_diff_lines() if app.changes
+                 else app.preview_lines(node))
         app.pscroll = max(0, min(app.pscroll, max(0, len(lines) - body_h + 2)))
-        if node:
+        if app.changes:
+            x = px
+            if app.focus == "preview":
+                put(stdscr, 1, x, "▶ ",
+                    curses.color_pair(theme.C_MSG) | curses.A_BOLD)
+                x += 2
+            put(stdscr, 1, x,
+                "± all changes — %d file(s)" % len(app.git.files),
+                curses.color_pair(theme.C_TITLE) | curses.A_BOLD, pw)
+        elif node:
             x = px
             if app.focus == "preview":
                 put(stdscr, 1, x, "▶ ",
@@ -157,7 +167,9 @@ def draw(stdscr, app):
                 continue
             if app.diff_mode:
                 attr = curses.color_pair(theme.C_TEXT)
-                if ln.startswith("+") and not ln.startswith("+++"):
+                if ln.startswith("diff --git"):
+                    attr = curses.color_pair(theme.C_TITLE) | curses.A_BOLD
+                elif ln.startswith("+") and not ln.startswith("+++"):
                     attr = curses.color_pair(theme.C_ADD)
                 elif ln.startswith("-") and not ln.startswith("---"):
                     attr = curses.color_pair(theme.C_DEL)

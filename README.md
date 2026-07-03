@@ -13,9 +13,10 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 - **Preview pane** with line numbers and lightweight **syntax highlighting**
   (python, shell, js/ts, json/tfstate, yaml, terraform, dockerfile, …),
   or the file's **git diff** (`d`); resize the split with `<` / `>`
-- **Changes view** (`D`): only your modified/staged/untracked files, with
-  a live diff preview that updates as files change on disk — watch an AI
-  agent's edits land in real time; `[` / `]` jump between hunks
+- **Changes view** (`D`): one repo-wide diff of everything that changed
+  (untracked files shown as added), updating live as files change on
+  disk — watch an AI agent's edits land in real time. The changed-file
+  list on the left jumps to that file's section; `[` / `]` jump hunks
 - **Pane focus** (`Tab`): move focus to the preview so `j/k`, `gg/G`,
   `Ctrl-d/u` scroll the file instead of the tree
 - **Fuzzy file finder** (`/`) — subsequence matching like an IDE quick-open

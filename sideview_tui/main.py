@@ -13,8 +13,10 @@ Keys:
     Enter or e      edit file in $EDITOR
     Ctrl-d/Ctrl-u   half page down/up
     /               fuzzy find file (Enter open, Esc cancel)
-    D               changes view: only modified files, live diff preview
-                    (updates as files change on disk, e.g. by an AI agent)
+    D               changes view: one repo-wide diff of everything that
+                    changed (untracked files included), updating live as
+                    files change on disk (e.g. by an AI agent); the file
+                    list on the left jumps to that file's diff section
     [ / ]           previous / next hunk in a diff
     Tab             switch focus: tree <-> preview (j/k etc. scroll the
                     focused pane)
@@ -85,9 +87,14 @@ def handle_mouse(stdscr, app):
         app.psel[1] = max(0, app.pscroll + my - 3)
         if bstate & curses.BUTTON1_RELEASED:
             app.psel_active = False
-            node = app.selected()
-            if node and not node.is_dir:
-                lines = app.preview_lines(node)
+            lines = None
+            if app.changes:
+                lines = app.repo_diff_lines()
+            else:
+                node = app.selected()
+                if node and not node.is_dir:
+                    lines = app.preview_lines(node)
+            if lines:
                 a, b = sorted(app.psel)
                 b = min(b, len(lines) - 1)
                 text = "\n".join(lines[a:b + 1])
@@ -126,6 +133,8 @@ def handle_mouse(stdscr, app):
         if idx < len(app.visible):
             app.sel = idx
             app.pscroll = 0
+            if app.changes:
+                app.scroll_to_selected_change()
             if bstate & curses.BUTTON1_DOUBLE_CLICKED:
                 node = app.visible[idx]
                 if node.is_dir:
@@ -155,6 +164,7 @@ def main(stdscr, root):
                 app.git.refresh()
                 app.last_git = time.time()
                 app.preview_cache = None
+                app.repo_diff = None
                 app.build_visible()  # pick up created/deleted files
             continue
 
@@ -201,7 +211,8 @@ def main(stdscr, root):
             elif ch == 21:
                 app.pscroll = max(0, app.pscroll - (h - 4) // 2)
         elif ch in (ord("["), ord("]")):           # jump between diff hunks
-            lines = app.preview_lines(node)
+            lines = (app.repo_diff_lines() if app.changes
+                     else app.preview_lines(node))
             hunks = [i for i, l in enumerate(lines) if l.startswith("@@")]
             if hunks:
                 if ch == ord("]"):
@@ -236,6 +247,7 @@ def main(stdscr, root):
             app.diff_mode = app.changes
             app.sel, app.pscroll = 0, 0
             app.preview_cache = None
+            app.repo_diff = None
             app.build_visible()
         elif ch in (ord("l"), curses.KEY_RIGHT):
             if node and node.is_dir:
@@ -299,10 +311,15 @@ def main(stdscr, root):
         elif ch == ord("r"):
             app.git.refresh()
             app.preview_cache = None
+            app.repo_diff = None
             app.build_visible()
             app.message = "refreshed"
         elif ch == curses.KEY_RESIZE:
             pass
+        if app.changes and app.focus == "tree" and ch in (
+                ord("j"), ord("k"), curses.KEY_DOWN, curses.KEY_UP,
+                ord("g"), ord("G"), 4, 21, ord("D")):
+            app.scroll_to_selected_change()
         app.pending_g = False
 
 

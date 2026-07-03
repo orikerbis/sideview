@@ -37,7 +37,8 @@ class App:
         self.psel = None       # [start, end] line selection in the preview
         self.psel_active = False
         self.focus = "tree"    # Tab toggles: "tree" | "preview"
-        self.changes = False   # D: changed-files view with diff preview
+        self.changes = False   # D: changed-files view with repo-wide diff
+        self.repo_diff = None  # cached (lines, {rel: header_line_index})
         self.diff_mode = False
         self.sel = 0
         self.scroll = 0
@@ -155,6 +156,42 @@ class App:
         self.preview_cache = (key, lines)
         return lines
 
+    def repo_diff_lines(self):
+        """One diff for the whole repo (untracked files as +added), plus
+        an index of each file's header line for jump-to-file."""
+        if self.repo_diff is not None:
+            return self.repo_diff[0]
+        out = run(["git", "diff", "HEAD"], self.root) or ""
+        lines = out.splitlines()
+        for rel in sorted(self.git.files):
+            if self.git.files[rel] != "??":
+                continue
+            lines.append("diff --git a/%s b/%s" % (rel, rel))
+            lines.append("new file (untracked)")
+            try:
+                blob = open(os.path.join(self.root, rel), "rb").read(256 * 1024)
+                if b"\0" in blob[:8192]:
+                    lines.append("+(binary file)")
+                else:
+                    body = blob.decode("utf-8", errors="replace").splitlines()
+                    lines.extend("+" + l for l in body[:400])
+            except OSError:
+                pass
+            lines.append("")
+        index = {}
+        for i, l in enumerate(lines):
+            if l.startswith("diff --git "):
+                index[l.split(" b/", 1)[-1]] = i
+        if not lines:
+            lines = ["(no changes)"]
+        self.repo_diff = (lines, index)
+        return lines
+
+    def scroll_to_selected_change(self):
+        node = self.selected()
+        self.repo_diff_lines()
+        self.pscroll = self.repo_diff[1].get(node.rel, 0) if node else 0
+
     # ---------- actions ----------
     def selected(self):
         return self.visible[self.sel] if self.visible else None
@@ -190,3 +227,4 @@ class App:
         stdscr.refresh()
         self.git.refresh()
         self.preview_cache = None
+        self.repo_diff = None
