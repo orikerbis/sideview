@@ -62,3 +62,13 @@ or split your iTerm2/Terminal window and run it there.
 |---|---|---|
 | `SIDEVIEW_ICONS` | `nerd`, `emoji`, `off` | `nerd` |
 | `EDITOR` | any editor command | `nvim`, falling back to `vim` |
+
+## Development
+
+Code lives in the `sideview_tui/` package (`icons`, `textutil`, `gitstate`,
+`app`, `theme`, `ui`, `main`); the root `sideview` script is a thin launcher.
+Run the pty-based regression tests with:
+
+```bash
+python3 tests/test_tui.py
+```

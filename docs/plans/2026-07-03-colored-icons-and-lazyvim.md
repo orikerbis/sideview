@@ -28,7 +28,7 @@
 - Consumes: the `sideview` executable at repo root (currently the single-file version).
 - Produces: `make_fixture() -> str` (temp git repo with modified/staged/untracked files), `spawn(repo) -> (pid, fd)`, `drain(fd, wait) -> bytes`, `wait_exit(pid, fd, timeout=5) -> (status|None, bytes)` — reused by later tasks' assertions.
 
-- [ ] **Step 1: Write the test** — full content:
+- [x] **Step 1: Write the test** — full content:
 
 ```python
 #!/usr/bin/env python3
@@ -144,9 +144,9 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Run it** — `python3 tests/test_tui.py`. Expected: all PASS (this validates the earlier untested Ctrl-C raw-mode fix; if ctrl-c checks fail, fix before proceeding).
+- [x] **Step 2: Run it** — `python3 tests/test_tui.py`. Expected: all PASS (this validates the earlier untested Ctrl-C raw-mode fix; if ctrl-c checks fail, fix before proceeding).
 
-- [ ] **Step 3: Commit** — `git add tests/test_tui.py && git commit -m "test: pty regression harness"`
+- [x] **Step 3: Commit** — `git add tests/test_tui.py && git commit -m "test: pty regression harness"`
 
 ---
 
@@ -180,10 +180,10 @@ cli()
 
 (`cli()` keeps the `__doc__` help text — move the docstring to `main.py` and print `main.__doc__`.)
 
-- [ ] **Step 1: Create the package files**, moving code as mapped above.
-- [ ] **Step 2: Syntax-check all modules** — `python3 -m compileall sideview_tui sideview` (expect no errors).
-- [ ] **Step 3: Run tests** — `python3 tests/test_tui.py`. Expected: all PASS (pure refactor).
-- [ ] **Step 4: Commit** — `git add -A && git commit -m "refactor: split single file into sideview_tui package"`
+- [x] **Step 1: Create the package files**, moving code as mapped above.
+- [x] **Step 2: Syntax-check all modules** — `python3 -m compileall sideview_tui sideview` (expect no errors).
+- [x] **Step 3: Run tests** — `python3 tests/test_tui.py`. Expected: all PASS (pure refactor).
+- [x] **Step 4: Commit** — `git add -A && git commit -m "refactor: split single file into sideview_tui package"`
 
 ---
 
@@ -195,16 +195,16 @@ cli()
 **Interfaces:**
 - Produces: `theme.ICON_PAIRS: dict[str, tuple[int, int]]` — class → `(attr_normal, attr_selected)`; populated only for nerd style on 256-color terminals. Pair ids 30+ reserved for icons.
 
-- [ ] **Step 1: Add failing assertions** to `tests/test_tui.py` after the glyph checks:
+- [x] **Step 1: Add failing assertions** to `tests/test_tui.py` after the glyph checks:
 
 ```python
     check("py icon colored (fg 68)", "38;5;68" in raw)
     check("md icon colored (fg 109)", "38;5;109" in raw)
 ```
 
-- [ ] **Step 2: Run** — `python3 tests/test_tui.py`. Expected: exactly those two FAIL.
+- [x] **Step 2: Run** — `python3 tests/test_tui.py`. Expected: exactly those two FAIL.
 
-- [ ] **Step 3: Register icon pairs** at the end of the 256-color branch of `theme.init_theme()` (after `SEL_ATTR = ...`):
+- [x] **Step 3: Register icon pairs** at the end of the 256-color branch of `theme.init_theme()` (after `SEL_ATTR = ...`):
 
 ```python
         if icons.ICON_STYLE == "nerd":
@@ -217,7 +217,7 @@ cli()
                 pair += 2
 ```
 
-- [ ] **Step 4: Draw icons with their own attr** in `ui.draw()`. Tree row — replace the single `line`/`put` with:
+- [x] **Step 4: Draw icons with their own attr** in `ui.draw()`. Tree row — replace the single `line`/`put` with:
 
 ```python
         cls = icons.classify(n.name, n.is_dir, n.rel in app.expanded)
@@ -250,8 +250,8 @@ cli()
                 pw - cells(t_icon))
 ```
 
-- [ ] **Step 5: Run tests** — `python3 tests/test_tui.py`. Expected: all PASS.
-- [ ] **Step 6: Commit** — `git add -A && git commit -m "feat: per-filetype colored nerd icons"`
+- [x] **Step 5: Run tests** — `python3 tests/test_tui.py`. Expected: all PASS.
+- [x] **Step 6: Commit** — `git add -A && git commit -m "feat: per-filetype colored nerd icons"`
 
 ---
 
@@ -261,7 +261,7 @@ cli()
 - Create: `~/.config/nvim` (LazyVim starter clone, `.git` removed)
 - Modify: `~/.config/nvim/lazyvim.json` (enable extras; preserve the starter's other keys)
 
-- [ ] **Step 1: Verify absent + clone**
+- [x] **Step 1: Verify absent + clone**
 
 ```bash
 test -e ~/.config/nvim && echo "ABORT: config exists" || \
@@ -269,7 +269,7 @@ test -e ~/.config/nvim && echo "ABORT: config exists" || \
 rm -rf ~/.config/nvim/.git
 ```
 
-- [ ] **Step 2: Enable extras** — edit `~/.config/nvim/lazyvim.json` so `"extras"` contains:
+- [x] **Step 2: Enable extras** — edit `~/.config/nvim/lazyvim.json` so `"extras"` contains:
 
 ```json
 [
@@ -281,17 +281,17 @@ rm -rf ~/.config/nvim/.git
 ]
 ```
 
-- [ ] **Step 3: Headless sync (background, minutes)** — `nvim --headless "+Lazy! sync" +qa; echo "exit=$?"` → `exit=0`.
-- [ ] **Step 4: Verify** — `ls ~/.local/share/nvim/lazy | wc -l` > 25 and `nvim --headless "+lua print(#require('lazy').plugins())" +qa 2>&1` prints > 30. No commit (config lives outside the repo).
+- [x] **Step 3: Headless sync (background, minutes)** — `nvim --headless "+Lazy! sync" +qa; echo "exit=$?"` → `exit=0`.
+- [x] **Step 4: Verify** — `ls ~/.local/share/nvim/lazy | wc -l` > 25 and `nvim --headless "+lua print(#require('lazy').plugins())" +qa 2>&1` prints > 30. No commit (config lives outside the repo).
 
 ---
 
 ### Task 5: Final verification and push
 
-- [ ] **Step 1: Full suite** — `python3 tests/test_tui.py` → all PASS.
-- [ ] **Step 2: Editor resolution** — `python3 -c "import sys; sys.path.insert(0,'.'); from sideview_tui.app import EDITOR; print(EDITOR)"` → `nvim`.
-- [ ] **Step 3: Symlink check** — `~/.local/bin/sideview --help` prints usage (proves launcher + symlink work).
-- [ ] **Step 4: Check off plan boxes, commit, push**
+- [x] **Step 1: Full suite** — `python3 tests/test_tui.py` → all PASS.
+- [x] **Step 2: Editor resolution** — `python3 -c "import sys; sys.path.insert(0,'.'); from sideview_tui.app import EDITOR; print(EDITOR)"` → `nvim`.
+- [x] **Step 3: Symlink check** — `~/.local/bin/sideview --help` prints usage (proves launcher + symlink work).
+- [x] **Step 4: Check off plan boxes, commit, push**
 
 ```bash
 git add -A && git commit -m "docs: implementation plan (executed)" && git push
