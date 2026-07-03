@@ -30,6 +30,10 @@ def draw_scrollbar(stdscr, x, top, height, total, offset):
 def draw(stdscr, app):
     h, w = stdscr.getmaxyx()
     stdscr.erase()
+    # paint the dark background explicitly: wbkgd() merges its color pair
+    # into every cell on some ncurses builds, flattening per-cell colors
+    for y in range(h):
+        put(stdscr, y, 0, " " * w, curses.color_pair(theme.C_TEXT))
 
     # ----- header bar -----
     home = os.path.expanduser("~")
@@ -82,8 +86,15 @@ def draw(stdscr, app):
             put(stdscr, y, 0, "▌",
                 curses.color_pair(theme.C_ACCENT) | curses.A_BOLD)
             attr = theme.SEL_ATTR
-        line = "  " * n.depth + ic + name
-        put(stdscr, y, 1, line, attr, mark_x - 2)
+        cls = icons.classify(n.name, n.is_dir, n.rel in app.expanded)
+        icon_attr = (theme.ICON_PAIRS.get(cls, (attr, attr))[1 if sel else 0]
+                     if theme.ICON_PAIRS else attr)
+        x = 1 + 2 * n.depth
+        put(stdscr, y, 1, "  " * n.depth, attr)
+        if x < mark_x - 1:
+            put(stdscr, y, x, ic, icon_attr, mark_x - 1 - x)
+            x += cells(ic)
+        put(stdscr, y, x, name, attr, mark_x - 1 - x)
         if mark:
             put(stdscr, y, mark_x, mark, attr | curses.A_BOLD)
     draw_scrollbar(stdscr, tree_w - 1, 1, body_h, len(app.visible), app.scroll)
@@ -103,11 +114,18 @@ def draw(stdscr, app):
         lines = app.preview_lines(node)
         app.pscroll = max(0, min(app.pscroll, max(0, len(lines) - body_h + 2)))
         if node:
+            cls = icons.classify(node.name, node.is_dir,
+                                 node.rel in app.expanded)
             t_icon = icons.icon_for(node.name, node.is_dir,
                                     node.rel in app.expanded)
-            title = t_icon + node.rel + ("  [diff]" if app.diff_mode else "")
-            put(stdscr, 1, px, title,
-                curses.color_pair(theme.C_TITLE) | curses.A_BOLD, pw)
+            i_attr = (theme.ICON_PAIRS.get(cls, (0, 0))[0]
+                      if theme.ICON_PAIRS
+                      else curses.color_pair(theme.C_TITLE))
+            put(stdscr, 1, px, t_icon, i_attr, pw)
+            put(stdscr, 1, px + cells(t_icon),
+                node.rel + ("  [diff]" if app.diff_mode else ""),
+                curses.color_pair(theme.C_TITLE) | curses.A_BOLD,
+                pw - cells(t_icon))
         put(stdscr, 2, px, "─" * pw, curses.color_pair(theme.C_DIM))
         for row in range(2, body_h):
             i = app.pscroll + row - 2

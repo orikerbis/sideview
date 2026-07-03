@@ -5,6 +5,8 @@ init_theme after curses starts), never `from theme import SEL_ATTR`.
 """
 import curses
 
+from . import icons
+
 (C_TEXT, C_DIR, C_MOD, C_ADD, C_DEL, C_UNTR, C_DIM, C_HEAD, C_HEADGIT,
  C_SEL, C_TITLE, C_BAR, C_LINENO, C_MSG, C_ACCENT) = range(1, 16)
 
@@ -26,6 +28,14 @@ def init_theme():
             C_LINENO: (240, bg), C_MSG: (215, hbg), C_ACCENT: (208, sbg),
         }
         SEL_ATTR = curses.color_pair(C_SEL) | curses.A_BOLD
+        if icons.ICON_STYLE == "nerd":
+            pair = 30  # ids 30+ reserved for icon colors
+            for cls, col in icons.ICON_COLORS.items():
+                curses.init_pair(pair, col, bg)
+                curses.init_pair(pair + 1, col, sbg)
+                ICON_PAIRS[cls] = (curses.color_pair(pair),
+                                   curses.color_pair(pair + 1))
+                pair += 2
     else:
         pairs = {
             C_TEXT: (-1, -1), C_DIR: (curses.COLOR_BLUE, -1),

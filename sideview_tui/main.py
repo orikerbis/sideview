@@ -36,7 +36,6 @@ def main(stdscr, root):
     curses.raw()  # deliver Ctrl-C as a key (handled as quit), not SIGINT
     curses.curs_set(0)
     stdscr.timeout(1000)
-    stdscr.bkgd(" ", curses.color_pair(theme.C_TEXT))
     app = App(root)
     app.build_visible()
 

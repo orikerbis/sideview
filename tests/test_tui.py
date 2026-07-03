@@ -104,6 +104,8 @@ def main():
     check("py nerd glyph", "" in txt)
     check("md nerd glyph", "" in txt)
     check("folder nerd glyph", "" in txt)
+    check("py icon colored (fg 68)", "38;5;68m" in raw)
+    check("md icon colored (fg 109)", "38;5;109m" in raw)
 
     # --- navigate: expand src/, fuzzy find ---
     os.write(fd, b"l")
