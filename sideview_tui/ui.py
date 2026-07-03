@@ -2,7 +2,7 @@
 import curses
 import os
 
-from . import icons, theme
+from . import icons, syntax, theme
 from .textutil import cells, fit
 
 
@@ -59,7 +59,7 @@ def draw(stdscr, app):
 
     body_h = h - 2
     split = app.preview_on and w >= 60 and not app.filter_input
-    tree_w = max(28, int(w * 0.42)) if split else w
+    tree_w = max(24, min(int(w * app.split), w - 26)) if split else w
 
     if app.sel < app.scroll:
         app.scroll = app.sel
@@ -127,6 +127,7 @@ def draw(stdscr, app):
                 curses.color_pair(theme.C_TITLE) | curses.A_BOLD,
                 pw - cells(t_icon))
         put(stdscr, 2, px, "─" * pw, curses.color_pair(theme.C_DIM))
+        lang = syntax.detect(node.name) if node and not node.is_dir else None
         for row in range(2, body_h):
             i = app.pscroll + row - 2
             if i >= len(lines):
@@ -143,12 +144,23 @@ def draw(stdscr, app):
                 elif ln[:5] in ("diff ", "index"):
                     attr = curses.color_pair(theme.C_DIM)
                 put(stdscr, 1 + row, px, ln, attr, pw)
+                continue
+            num = "%4d " % (i + 1)
+            put(stdscr, 1 + row, px, num, curses.color_pair(theme.C_LINENO))
+            x, budget = px + len(num), pw - len(num)
+            if lang:
+                for text, tok in syntax.segments(ln, lang):
+                    if budget <= 0:
+                        break
+                    pair = theme.SYNTAX_PAIRS.get(tok, theme.C_TEXT)
+                    put(stdscr, 1 + row, x, text,
+                        curses.color_pair(pair), budget)
+                    used = min(cells(text), budget)
+                    x += used
+                    budget -= used
             else:
-                num = "%4d " % (i + 1)
-                put(stdscr, 1 + row, px, num,
-                    curses.color_pair(theme.C_LINENO))
-                put(stdscr, 1 + row, px + len(num), ln,
-                    curses.color_pair(theme.C_TEXT), pw - len(num))
+                put(stdscr, 1 + row, x, ln,
+                    curses.color_pair(theme.C_TEXT), budget)
         draw_scrollbar(stdscr, w - 1, 3, body_h - 2, len(lines), app.pscroll)
 
     # ----- bottom bar -----
@@ -167,7 +179,7 @@ def draw(stdscr, app):
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
         else:
             put(stdscr, h - 1, 1,
-                "⏎ open  / find  d diff  p preview  . hidden  q quit",
+                "⏎ open  / find  d diff  <> size  p preview  . hidden  q quit",
                 curses.color_pair(theme.C_BAR), w - 12)
         pos = f"{min(app.sel + 1, len(app.visible))}/{len(app.visible)}"
         put(stdscr, h - 1, max(0, w - len(pos) - 1), pos,

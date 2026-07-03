@@ -1,4 +1,5 @@
-"""Dark 256-color theme (gruvbox-inspired) with 8-color fallback.
+"""Dark 256-color theme (tokyonight-night, matching LazyVim) with
+8-color fallback.
 
 Consumers must reference SEL_ATTR as `theme.SEL_ATTR` (it is assigned by
 init_theme after curses starts), never `from theme import SEL_ATTR`.
@@ -8,10 +9,18 @@ import curses
 from . import icons
 
 (C_TEXT, C_DIR, C_MOD, C_ADD, C_DEL, C_UNTR, C_DIM, C_HEAD, C_HEADGIT,
- C_SEL, C_TITLE, C_BAR, C_LINENO, C_MSG, C_ACCENT) = range(1, 16)
+ C_SEL, C_TITLE, C_BAR, C_LINENO, C_MSG, C_ACCENT,
+ C_SYN_COMMENT, C_SYN_STRING, C_SYN_NUMBER, C_SYN_KEYWORD,
+ C_SYN_KEY) = range(1, 21)
 
 SEL_ATTR = 0        # set by init_theme
 ICON_PAIRS = {}     # icon class -> (attr_normal, attr_selected); nerd only
+
+# syntax token class -> color pair id
+SYNTAX_PAIRS = {
+    "comment": C_SYN_COMMENT, "string": C_SYN_STRING,
+    "number": C_SYN_NUMBER, "keyword": C_SYN_KEYWORD, "key": C_SYN_KEY,
+}
 
 
 def init_theme():
@@ -19,13 +28,20 @@ def init_theme():
     curses.start_color()
     curses.use_default_colors()
     if curses.COLORS >= 256:
+        # tokyonight-night approximations: fg #c0caf5→189, blue #7aa2f7→111,
+        # cyan #7dcfff→117, green #9ece6a→149, yellow #e0af68→179,
+        # orange #ff9e64→215, red #f7768e→210, magenta #bb9af7→141,
+        # teal #73daca→116, comment #565f89→60
         bg, hbg, sbg = 234, 236, 239
         pairs = {
-            C_TEXT: (250, bg), C_DIR: (111, bg), C_MOD: (179, bg),
-            C_ADD: (142, bg), C_DEL: (167, bg), C_UNTR: (73, bg),
-            C_DIM: (241, bg), C_HEAD: (223, hbg), C_HEADGIT: (142, hbg),
-            C_SEL: (231, sbg), C_TITLE: (108, bg), C_BAR: (246, hbg),
-            C_LINENO: (240, bg), C_MSG: (215, hbg), C_ACCENT: (208, sbg),
+            C_TEXT: (189, bg), C_DIR: (111, bg), C_MOD: (179, bg),
+            C_ADD: (149, bg), C_DEL: (210, bg), C_UNTR: (116, bg),
+            C_DIM: (60, bg), C_HEAD: (189, hbg), C_HEADGIT: (149, hbg),
+            C_SEL: (231, sbg), C_TITLE: (117, bg), C_BAR: (103, hbg),
+            C_LINENO: (238, bg), C_MSG: (215, hbg), C_ACCENT: (215, sbg),
+            C_SYN_COMMENT: (60, bg), C_SYN_STRING: (149, bg),
+            C_SYN_NUMBER: (215, bg), C_SYN_KEYWORD: (141, bg),
+            C_SYN_KEY: (111, bg),
         }
         SEL_ATTR = curses.color_pair(C_SEL) | curses.A_BOLD
         if icons.ICON_STYLE == "nerd":
@@ -49,6 +65,11 @@ def init_theme():
             C_LINENO: (curses.COLOR_WHITE, -1),
             C_MSG: (curses.COLOR_YELLOW, -1),
             C_ACCENT: (curses.COLOR_YELLOW, -1),
+            C_SYN_COMMENT: (curses.COLOR_CYAN, -1),
+            C_SYN_STRING: (curses.COLOR_GREEN, -1),
+            C_SYN_NUMBER: (curses.COLOR_YELLOW, -1),
+            C_SYN_KEYWORD: (curses.COLOR_MAGENTA, -1),
+            C_SYN_KEY: (curses.COLOR_BLUE, -1),
         }
         SEL_ATTR = curses.A_REVERSE
     for pid, (f, b) in pairs.items():

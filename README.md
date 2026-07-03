@@ -10,11 +10,14 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 - **Git-aware everywhere**: branch + ahead/behind + staged/modified/untracked
   counts in the header; per-file status colors and markers in the tree;
   changed-content dots on collapsed folders; auto-refresh every 3s
-- **Preview pane** with line numbers, or the file's **git diff** (`d`)
+- **Preview pane** with line numbers and lightweight **syntax highlighting**
+  (python, shell, js/ts, json/tfstate, yaml, terraform, dockerfile, …),
+  or the file's **git diff** (`d`); resize the split with `<` / `>`
 - **Fuzzy file finder** (`/`) — subsequence matching like an IDE quick-open
 - **Edit in Neovim/vim**: `Enter` suspends the TUI and opens the file in
   `$EDITOR` (defaults to `nvim` when installed, else `vim`)
-- **Dark 256-color theme** (gruvbox-inspired) with graceful 8-color fallback
+- **Dark 256-color theme** matching **tokyonight-night** (the LazyVim
+  default) with graceful 8-color fallback
 - **VSCode-style file icons**: colored Nerd Font glyphs by default,
   emoji fallback for terminals without a Nerd Font
 
@@ -51,6 +54,7 @@ or split your iTerm2/Terminal window and run it there.
 | `/` | fuzzy find file (`Enter` open, `Esc` cancel) |
 | `d` | toggle git-diff view in preview |
 | `p` | toggle preview pane |
+| `<` / `>` | make the tree pane narrower / wider |
 | `J` / `K` | scroll preview |
 | `.` | show hidden files |
 | `r` | refresh |

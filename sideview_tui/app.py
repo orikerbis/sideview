@@ -31,6 +31,7 @@ class App:
         self.expanded = set()
         self.show_hidden = False
         self.preview_on = True
+        self.split = 0.42  # tree pane fraction of the width; < > adjust
         self.diff_mode = False
         self.sel = 0
         self.scroll = 0

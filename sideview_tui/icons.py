@@ -17,6 +17,7 @@ EMOJI = {
     "archive": "\U0001F4E6", "pdf": "\U0001F4D5", "lock": "\U0001F512",
     "docker": "\U0001F433", "html": "\U0001F310", "css": "\U0001F3A8",
     "shell": "\U0001F41A", "key": "\U0001F511", "db": "\U0001F4BE",
+    "json": "\U0001F9FE", "terraform": "\U0001F3D7",
     "default": "\U0001F4C4",
 }
 NERD = {
@@ -27,6 +28,7 @@ NERD = {
     "archive": "", "pdf": "", "lock": "",
     "docker": "", "html": "", "css": "",
     "shell": "", "key": "", "db": "",
+    "json": "", "terraform": "",
     "default": "",
 }
 ICON_COLORS = {
@@ -35,14 +37,16 @@ ICON_COLORS = {
     "git": 202, "image": 176, "audio": 214, "video": 203, "archive": 180,
     "pdf": 167, "lock": 244, "docker": 39, "html": 208, "css": 75,
     "shell": 114, "key": 179, "db": 137, "default": 250,
+    "json": 179, "terraform": 141,
 }
 EXT_CLASS = {
     ".py": "py", ".md": "md", ".markdown": "md", ".rst": "md",
-    ".json": "config", ".yaml": "config", ".yml": "config",
+    ".json": "json", ".tfstate": "json", ".yaml": "config", ".yml": "config",
     ".toml": "config", ".ini": "config", ".cfg": "config", ".conf": "config",
     ".js": "js", ".jsx": "js", ".mjs": "js", ".cjs": "js",
     ".ts": "ts", ".tsx": "ts",
     ".go": "go", ".rs": "rust", ".java": "java",
+    ".tf": "terraform", ".tfvars": "terraform",
     ".c": "code", ".cpp": "code", ".h": "code", ".hpp": "code",
     ".rb": "code", ".php": "code", ".swift": "code", ".kt": "code",
     ".lua": "code", ".vim": "code",
@@ -74,9 +78,12 @@ ICONS = {"emoji": EMOJI, "nerd": NERD}.get(ICON_STYLE)
 def classify(name, is_dir, is_open=False):
     if is_dir:
         return "dir_open" if is_open else "dir"
-    cls = NAME_CLASS.get(name.lower())
+    low = name.lower()
+    cls = NAME_CLASS.get(low)
+    if cls is None and low.endswith((".tfstate", ".tfstate.backup")):
+        cls = "json"
     if cls is None:
-        cls = EXT_CLASS.get(os.path.splitext(name)[1].lower(), "default")
+        cls = EXT_CLASS.get(os.path.splitext(low)[1], "default")
     return cls
 
 

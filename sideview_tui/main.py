@@ -15,6 +15,7 @@ Keys:
     /               fuzzy find file (Enter open, Esc cancel)
     d               toggle diff view in preview
     p               toggle preview pane
+    < / >           make the tree pane narrower / wider
     J/K             scroll preview
     .               toggle hidden files
     r               refresh
@@ -116,6 +117,10 @@ def main(stdscr, root):
             app.preview_cache = None
         elif ch == ord("p"):
             app.preview_on = not app.preview_on
+        elif ch == ord("<"):
+            app.split = max(0.20, round(app.split - 0.06, 2))
+        elif ch == ord(">"):
+            app.split = min(0.80, round(app.split + 0.06, 2))
         elif ch == ord("J"):
             app.pscroll += 3
         elif ch == ord("K"):

@@ -34,7 +34,7 @@ def make_fixture():
     open(f"{d}/app.py", "w").write("print('hi')\n")
     open(f"{d}/README.md", "w").write("# test\n")
     os.makedirs(f"{d}/src")
-    open(f"{d}/src/util.py", "w").write("x=1\n")
+    open(f"{d}/src/util.py", "w").write("def f():\n    return 1\n")
     g("add", "-A")
     g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init")
     open(f"{d}/app.py", "a").write("print('more')\n")
@@ -114,6 +114,19 @@ def main():
     os.write(fd, b"/util\r")
     ok, _ = wait_for(fd, b"src/util.py")
     check("fuzzy find", ok)
+
+    # --- syntax highlighting: select util.py, expect keyword color ---
+    os.write(fd, b"\x1b")            # clear filter, back to tree
+    wait_for(fd, b"notes.txt")
+    os.write(fd, b"j")               # src/ -> util.py
+    ok, _ = wait_for(fd, b"38;5;141m")   # tokyonight keyword magenta
+    check("syntax keyword colored", ok)
+
+    # --- resize split: smoke test (q exiting cleanly proves it survived) ---
+    os.write(fd, b">><")
+    out = drain(fd, 0.8)
+    check("resize keys no crash", b"Traceback" not in out)
+
     os.write(fd, b"q")
     status, _ = wait_exit(pid, fd)
     check("q clean exit", status == 0)
