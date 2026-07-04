@@ -26,8 +26,9 @@ live in a side terminal pane next to your editor. Pure Python stdlib
   `$EDITOR` (defaults to `nvim` when installed, else `vim`)
 - **Dark 256-color theme** matching **tokyonight-night** (the LazyVim
   default) with graceful 8-color fallback
-- **Mouse support**: drag the pane separator to resize, click to select,
-  double-click to open, scroll wheel in both panes
+- **No mouse capture**: your terminal's native text selection and copy
+  (⌘C) work everywhere by default; the scroll wheel scrolls the focused
+  pane (terminals send arrow keys to full-screen apps)
 - **Live updates**: preview re-reads changed files (~1s); git status and
   the tree pick up new/deleted files every ~3s
 - **VSCode-style file icons**: colored Nerd Font glyphs by default,
@@ -74,8 +75,7 @@ or split your iTerm2/Terminal window and run it there.
 | `.` | show hidden files |
 | `r` | refresh |
 | `q` / `Ctrl-C` | quit |
-| mouse | drag separator = resize, click = select, double-click = open, wheel = scroll |
-| mouse drag in preview | select lines (highlighted), copied to clipboard on release |
+| mouse | no capture — native terminal selection/copy; wheel scrolls the focused pane |
 | `y` / `Y` | copy selected file's path / contents to clipboard |
 
 ## Configuration

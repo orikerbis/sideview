@@ -33,14 +33,9 @@ class App:
         self.show_hidden = False
         self.preview_on = True
         self.split = 0.42  # tree pane fraction of the width; < > adjust
-        self.dragging = False  # mouse-dragging the pane separator
-        self.psel = None       # [start, end] line selection in the preview
-        self.psel_active = False
         self.focus = "tree"    # Tab toggles: "tree" | "preview"
         self.changes = False   # D: changed-files view with repo-wide diff
         self.repo_diff = None  # cached (rows, {rel: header_row_index})
-        self.last_click_t = 0.0   # for double-click detection
-        self.last_click_idx = -1
         self.diff_mode = False
         self.sel = 0
         self.scroll = 0

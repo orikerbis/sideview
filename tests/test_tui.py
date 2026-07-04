@@ -134,40 +134,17 @@ def main():
     ok, _ = wait_for(fd, b"38;5;141m")   # tokyonight keyword magenta
     check("syntax keyword colored", ok)
 
-    # --- mouse drag in preview: selects lines, copies on release ---
-    def m(b, x, y, release=False):  # SGR: ESC [ < b;x;y M|m (1-based)
-        return b"\x1b[<%d;%d;%d%s" % (b, x + 1, y + 1,
-                                       b"m" if release else b"M")
-    px = int(80 * 0.42) + 1            # preview x at default split
-    os.write(fd, m(0, px + 10, 3))     # press on preview line 1
-    time.sleep(0.1)
-    os.write(fd, m(32, px + 10, 4))    # drag down to line 2
-    time.sleep(0.1)
-    os.write(fd, m(0, px + 10, 4, release=True))   # release -> copy
-    ok, buf = wait_for(fd, b"copied 2 line")
-    check("preview drag-select copies", ok)
-    check("selection highlight visible", b"48;5;239" in buf)
+    # --- y: copy selected file's path to the clipboard ---
+    os.write(fd, b"y")
+    ok, _ = wait_for(fd, b"copied path")
+    check("y copies path", ok)
     clip = open(clipfile).read() if os.path.exists(clipfile) else ""
-    check("clipboard has selected lines",
-          "def f():" in clip and "return 1" in clip)
+    check("clipboard has file path", clip.endswith("src/util.py"))
 
     # --- resize split: smoke test (q exiting cleanly proves it survived) ---
     os.write(fd, b">><")
     out = drain(fd, 0.8)
     check("resize keys no crash", b"Traceback" not in out)
-
-    # --- mouse: drag separator, click row, wheel both ways (SGR) ---
-    sep = max(24, min(int(80 * 0.48), 54)) - 1   # split is 0.48 after >><
-    os.write(fd, m(0, sep, 10))                  # press on separator
-    time.sleep(0.1)
-    os.write(fd, m(32, sep + 4, 10))             # drag right
-    os.write(fd, m(0, sep + 4, 10, release=True))
-    os.write(fd, m(0, 3, 2) + m(0, 3, 2, release=True))  # click tree row
-    os.write(fd, m(65, 60, 10) + m(65, 60, 10))  # wheel DOWN over preview
-    os.write(fd, m(64, 60, 10))                  # wheel up over preview
-    os.write(fd, m(65, 5, 5))                    # wheel down over tree
-    out = drain(fd, 0.8)
-    check("mouse events no crash", b"Traceback" not in out)
 
     # --- changes view: D shows one repo-wide diff, untracked included ---
     os.write(fd, b"D")

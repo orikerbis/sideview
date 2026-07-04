@@ -34,7 +34,7 @@ def draw_scrollbar(stdscr, x, top, height, total, offset):
             curses.color_pair(theme.C_TEXT) | curses.A_BOLD)
 
 
-def draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h, sel_range):
+def draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h):
     """Delta-style diff rendering: file header bars with stats, hunk
     markers, line-number gutter, colored change bars, syntax-highlighted
     added/context lines."""
@@ -45,10 +45,6 @@ def draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h, sel_range):
         kind, num, text, lang = rows_data[i]
         text = text.replace("\t", "    ")
         y = 1 + row
-        if sel_range and sel_range[0] <= i <= sel_range[1]:
-            put(stdscr, y, px, " " * pw, theme.SEL_ATTR)
-            put(stdscr, y, px, text, theme.SEL_ATTR, pw)
-            continue
         if kind == "blank":
             continue
         if kind == "file":
@@ -59,8 +55,8 @@ def draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h, sel_range):
                 curses.color_pair(theme.C_HEAD) | curses.A_BOLD, pw - 2)
             continue
         if kind == "hunk":
-            put(stdscr, y, px + 6, text + " " + "╌" * pw,
-                curses.color_pair(theme.C_UNTR), pw - 6)
+            put(stdscr, y, px + 6, text,
+                curses.color_pair(theme.C_UNTR) | curses.A_BOLD, pw - 6)
             continue
         if kind == "meta":
             put(stdscr, y, px + 6, text, curses.color_pair(theme.C_DIM), pw - 6)
@@ -216,10 +212,8 @@ def draw(stdscr, app):
                 curses.color_pair(theme.C_TITLE) | curses.A_BOLD,
                 pw - cells(t_icon) - (x - px))
         put(stdscr, 2, px, "─" * pw, curses.color_pair(theme.C_DIM))
-        sel_range = sorted(app.psel) if app.psel else None
         if app.changes:
-            draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h,
-                             sel_range)
+            draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h)
         lang = (syntax.detect(node.name)
                 if not app.changes and node and not node.is_dir else None)
         for row in range(2, body_h) if not app.changes else ():
@@ -227,12 +221,6 @@ def draw(stdscr, app):
             if i >= len(lines):
                 break
             ln = lines[i].replace("\t", "    ")
-            if sel_range and sel_range[0] <= i <= sel_range[1] \
-                    and not app.diff_mode:
-                put(stdscr, 1 + row, px, " " * pw, theme.SEL_ATTR)
-                put(stdscr, 1 + row, px, "%4d " % (i + 1) + ln,
-                    theme.SEL_ATTR, pw)
-                continue
             if app.diff_mode:
                 attr = curses.color_pair(theme.C_TEXT)
                 if ln.startswith("diff --git"):
