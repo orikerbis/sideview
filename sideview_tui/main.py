@@ -44,17 +44,48 @@ from . import theme
 from .app import App
 from .ui import draw, layout
 
-BUTTON5 = getattr(curses, "BUTTON5_PRESSED", 0x200000)
+MOUSE_ON = b"\x1b[?1002h\x1b[?1006h"   # motion-while-pressed + SGR coords
+MOUSE_OFF = b"\x1b[?1006l\x1b[?1002l"
 
 
 def set_mouse(on):
-    if on:
-        curses.mousemask(curses.ALL_MOUSE_EVENTS
-                         | curses.REPORT_MOUSE_POSITION)
-        os.write(sys.stdout.fileno(), b"\x1b[?1002h")
-    else:
-        curses.mousemask(0)
-        os.write(sys.stdout.fileno(), b"\x1b[?1002l")
+    os.write(sys.stdout.fileno(), MOUSE_ON if on else MOUSE_OFF)
+
+
+def read_escape(stdscr):
+    """After a 27, parse an SGR mouse report '[<b;x;y(M|m)'.
+    Returns an event dict, "csi" for other CSI sequences, or None for a
+    plain Esc keypress. We speak the mouse protocol ourselves because
+    macOS ncurses cannot report wheel-down (mouse ABI v1)."""
+    stdscr.timeout(0)
+    try:
+        c = stdscr.getch()
+        if c == -1:
+            return None
+        if c != ord("["):
+            curses.ungetch(c)
+            return None
+        c = stdscr.getch()
+        if c != ord("<"):
+            while c != -1 and not 64 <= c <= 126:  # swallow unknown CSI
+                c = stdscr.getch()
+            return "csi"
+        buf = ""
+        while True:
+            c = stdscr.getch()
+            if c == -1:
+                return "csi"
+            if chr(c) in "Mm":
+                fin = chr(c)
+                break
+            buf += chr(c)
+        try:
+            b, x, y = (int(t) for t in buf.split(";"))
+        except ValueError:
+            return "csi"
+        return {"b": b, "x": x - 1, "y": y - 1, "release": fin == "m"}
+    finally:
+        stdscr.timeout(1000)
 
 
 def clipboard(text):
@@ -66,76 +97,76 @@ def clipboard(text):
         return False
 
 
-def handle_mouse(stdscr, app):
-    try:
-        _, mx, my, _, bstate = curses.getmouse()
-    except curses.error:
-        return
+def handle_mouse(stdscr, app, ev):
+    mx, my, released = ev["x"], ev["y"], ev["release"]
+    b = ev["b"]
+    wheel = b & 64
+    motion = bool(b & 32) and not wheel
+    press = not released and not motion and not wheel and (b & 3) == 0
     h, w = stdscr.getmaxyx()
     split, tree_w = layout(app, w)
     sep = tree_w - 1
 
+    if wheel:
+        down = (b & 1) == 1
+        if split and mx >= tree_w:
+            app.pscroll = max(0, app.pscroll + (3 if down else -3))
+        elif app.visible:
+            app.sel = max(0, min(app.sel + (3 if down else -3),
+                                 len(app.visible) - 1))
+            if app.changes:
+                app.scroll_to_selected_change()
+        return
+
     # drag the separator to resize the panes
     if app.dragging:
-        if bstate & curses.BUTTON1_RELEASED:
-            app.dragging = False
         app.split = min(0.80, max(0.20, mx / max(w, 1)))
+        if released:
+            app.dragging = False
         return
 
     # drag in the preview pane: select lines, copy on release
-    if app.psel_active:
+    if app.psel_active and app.psel:
         app.psel[1] = max(0, app.pscroll + my - 3)
-        if bstate & curses.BUTTON1_RELEASED:
+        if released:
             app.psel_active = False
-            lines = None
             if app.changes:
-                lines = app.repo_diff_lines()
+                lines = [r[2] for r in app.repo_diff_rows()]
             else:
                 node = app.selected()
-                if node and not node.is_dir:
-                    lines = app.preview_lines(node)
+                lines = (app.preview_lines(node)
+                         if node and not node.is_dir else None)
             if lines:
-                a, b = sorted(app.psel)
-                b = min(b, len(lines) - 1)
-                text = "\n".join(lines[a:b + 1])
+                a, bb = sorted(app.psel)
+                bb = min(bb, len(lines) - 1)
+                text = "\n".join(lines[a:bb + 1])
                 if text and clipboard(text):
-                    app.message = "copied %d line(s)" % (b - a + 1)
+                    app.message = "copied %d line(s)" % (bb - a + 1)
             # keep app.psel: highlight stays until the next key/click
         return
 
-    if split and bstate & curses.BUTTON1_PRESSED and abs(mx - sep) <= 1:
+    if press and split and abs(mx - sep) <= 1:
         app.dragging = True
         return
-    if split and mx > sep + 1 and 3 <= my <= h - 2 \
-            and bstate & curses.BUTTON1_PRESSED:
+    if press and split and mx > sep + 1 and 3 <= my <= h - 2:
         line = app.pscroll + my - 3
         app.psel = [line, line]
         app.psel_active = True
         return
 
-    # scroll wheel: preview pane on the right, tree on the left
-    if bstate & curses.BUTTON4_PRESSED:
-        if split and mx >= tree_w:
-            app.pscroll = max(0, app.pscroll - 3)
-        else:
-            app.sel = max(0, app.sel - 3)
-        return
-    if bstate & BUTTON5:
-        if split and mx >= tree_w:
-            app.pscroll += 3
-        else:
-            app.sel = min(app.sel + 3, max(0, len(app.visible) - 1))
-        return
-
-    # click in the tree: select; double-click: open (dir toggle / edit)
-    if mx < tree_w and 1 <= my <= h - 2:
+    # click in the tree: select; fast second click: open
+    if press and mx < tree_w and 1 <= my <= h - 2:
         idx = app.scroll + my - 1
         if idx < len(app.visible):
+            double = (time.time() - app.last_click_t < 0.4
+                      and app.last_click_idx == idx)
+            app.last_click_t, app.last_click_idx = time.time(), idx
             app.sel = idx
             app.pscroll = 0
+            app.psel = None
             if app.changes:
                 app.scroll_to_selected_change()
-            if bstate & curses.BUTTON1_DOUBLE_CLICKED:
+            if double:
                 node = app.visible[idx]
                 if node.is_dir:
                     app.toggle_dir(node)
@@ -149,7 +180,6 @@ def main(stdscr, root):
     curses.raw()  # deliver Ctrl-C as a key (handled as quit), not SIGINT
     curses.curs_set(0)
     stdscr.timeout(1000)
-    curses.mouseinterval(150)  # allow double-click detection
     set_mouse(True)
     app = App(root)
     app.build_visible()
@@ -157,9 +187,8 @@ def main(stdscr, root):
     while True:
         draw(stdscr, app)
         if app.mouse_on:
-            # ncurses re-emits ?1000h (buttons only) on refresh, which
-            # downgrades drag tracking — re-assert motion-while-pressed
-            os.write(sys.stdout.fileno(), b"\x1b[?1002h")
+            # re-assert each frame: editors/ncurses can reset the modes
+            os.write(sys.stdout.fileno(), MOUSE_ON)
         ch = stdscr.getch()
         app.message = ""
 
@@ -172,11 +201,17 @@ def main(stdscr, root):
                 app.build_visible()  # pick up created/deleted files
             continue
 
-        if ch == curses.KEY_MOUSE:
-            handle_mouse(stdscr, app)
-            continue
+        if ch == 27:
+            ev = read_escape(stdscr)
+            if isinstance(ev, dict):
+                handle_mouse(stdscr, app, ev)
+                continue
+            if ev == "csi":
+                continue
+            # plain Esc: falls through to the key handlers below
 
-        app.psel = None  # any keypress clears the copy-selection highlight
+        # any keypress clears the copy-selection highlight
+        app.psel, app.psel_active = None, False
 
         if app.filter_input:
             if ch == 27:
@@ -217,9 +252,12 @@ def main(stdscr, root):
             elif ch == 21:
                 app.pscroll = max(0, app.pscroll - (h - 4) // 2)
         elif ch in (ord("["), ord("]")):           # jump between diff hunks
-            lines = (app.repo_diff_lines() if app.changes
-                     else app.preview_lines(node))
-            hunks = [i for i, l in enumerate(lines) if l.startswith("@@")]
+            if app.changes:
+                hunks = [i for i, r in enumerate(app.repo_diff_rows())
+                         if r[0] in ("hunk", "file")]
+            else:
+                hunks = [i for i, l in enumerate(app.preview_lines(node))
+                         if l.startswith("@@")]
             if hunks:
                 if ch == ord("]"):
                     nxt = [i for i in hunks if i > app.pscroll]

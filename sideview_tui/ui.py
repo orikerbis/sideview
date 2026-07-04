@@ -34,6 +34,66 @@ def draw_scrollbar(stdscr, x, top, height, total, offset):
             curses.color_pair(theme.C_TEXT) | curses.A_BOLD)
 
 
+def draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h, sel_range):
+    """Delta-style diff rendering: file header bars with stats, hunk
+    markers, line-number gutter, colored change bars, syntax-highlighted
+    added/context lines."""
+    for row in range(2, body_h):
+        i = app.pscroll + row - 2
+        if i >= len(rows_data):
+            break
+        kind, num, text, lang = rows_data[i]
+        text = text.replace("\t", "    ")
+        y = 1 + row
+        if sel_range and sel_range[0] <= i <= sel_range[1]:
+            put(stdscr, y, px, " " * pw, theme.SEL_ATTR)
+            put(stdscr, y, px, text, theme.SEL_ATTR, pw)
+            continue
+        if kind == "blank":
+            continue
+        if kind == "file":
+            put(stdscr, y, px, " " * pw, curses.color_pair(theme.C_HEAD))
+            name = text.rsplit("  ", 1)[0]
+            ic = icons.icon_for(os.path.basename(name), False)
+            put(stdscr, y, px + 1, ic + text,
+                curses.color_pair(theme.C_HEAD) | curses.A_BOLD, pw - 2)
+            continue
+        if kind == "hunk":
+            put(stdscr, y, px + 6, text + " " + "╌" * pw,
+                curses.color_pair(theme.C_UNTR), pw - 6)
+            continue
+        if kind == "meta":
+            put(stdscr, y, px + 6, text, curses.color_pair(theme.C_DIM), pw - 6)
+            continue
+        # add / del / ctx: gutter bar + line number + code
+        bar, num_pair = " ", theme.C_LINENO
+        if kind == "add":
+            bar, num_pair = "▎", theme.C_ADD
+        elif kind == "del":
+            bar, num_pair = "▎", theme.C_DEL
+        put(stdscr, y, px, "%4s " % num, curses.color_pair(theme.C_LINENO))
+        put(stdscr, y, px + 5, bar, curses.color_pair(num_pair))
+        x, budget = px + 6, pw - 6
+        if kind == "del":
+            put(stdscr, y, x, text, curses.color_pair(theme.C_DEL), budget)
+        elif lang:
+            for seg, tok in syntax.segments(text, lang):
+                if budget <= 0:
+                    break
+                pair = theme.SYNTAX_PAIRS.get(tok, theme.C_TEXT)
+                attr = curses.color_pair(pair)
+                if kind == "ctx" and tok == "":
+                    attr = curses.color_pair(theme.C_DIM)
+                put(stdscr, y, x, seg, attr, budget)
+                used = min(cells(seg), budget)
+                x += used
+                budget -= used
+        else:
+            attr = curses.color_pair(
+                theme.C_TEXT if kind == "add" else theme.C_DIM)
+            put(stdscr, y, x, text, attr, budget)
+
+
 def draw(stdscr, app):
     h, w = stdscr.getmaxyx()
     stdscr.erase()
@@ -121,9 +181,13 @@ def draw(stdscr, app):
                     curses.color_pair(theme.C_DIM))
         px, pw = tree_w + 1, w - tree_w - 2
         node = app.selected()
-        lines = (app.repo_diff_lines() if app.changes
-                 else app.preview_lines(node))
-        app.pscroll = max(0, min(app.pscroll, max(0, len(lines) - body_h + 2)))
+        if app.changes:
+            rows_data = app.repo_diff_rows()
+            total = len(rows_data)
+        else:
+            lines = app.preview_lines(node)
+            total = len(lines)
+        app.pscroll = max(0, min(app.pscroll, max(0, total - body_h + 2)))
         if app.changes:
             x = px
             if app.focus == "preview":
@@ -152,9 +216,13 @@ def draw(stdscr, app):
                 curses.color_pair(theme.C_TITLE) | curses.A_BOLD,
                 pw - cells(t_icon) - (x - px))
         put(stdscr, 2, px, "─" * pw, curses.color_pair(theme.C_DIM))
-        lang = syntax.detect(node.name) if node and not node.is_dir else None
         sel_range = sorted(app.psel) if app.psel else None
-        for row in range(2, body_h):
+        if app.changes:
+            draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h,
+                             sel_range)
+        lang = (syntax.detect(node.name)
+                if not app.changes and node and not node.is_dir else None)
+        for row in range(2, body_h) if not app.changes else ():
             i = app.pscroll + row - 2
             if i >= len(lines):
                 break
@@ -195,7 +263,7 @@ def draw(stdscr, app):
             else:
                 put(stdscr, 1 + row, x, ln,
                     curses.color_pair(theme.C_TEXT), budget)
-        draw_scrollbar(stdscr, w - 1, 3, body_h - 2, len(lines), app.pscroll)
+        draw_scrollbar(stdscr, w - 1, 3, body_h - 2, total, app.pscroll)
 
     # ----- bottom bar -----
     put(stdscr, h - 1, 0, " " * w, curses.color_pair(theme.C_BAR))

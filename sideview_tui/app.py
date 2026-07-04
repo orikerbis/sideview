@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import time
 
+from . import syntax
 from .gitstate import Git, run
 
 NOISE_DIRS = {
@@ -38,7 +39,9 @@ class App:
         self.psel_active = False
         self.focus = "tree"    # Tab toggles: "tree" | "preview"
         self.changes = False   # D: changed-files view with repo-wide diff
-        self.repo_diff = None  # cached (lines, {rel: header_line_index})
+        self.repo_diff = None  # cached (rows, {rel: header_row_index})
+        self.last_click_t = 0.0   # for double-click detection
+        self.last_click_idx = -1
         self.diff_mode = False
         self.sel = 0
         self.scroll = 0
@@ -156,40 +159,87 @@ class App:
         self.preview_cache = (key, lines)
         return lines
 
-    def repo_diff_lines(self):
-        """One diff for the whole repo (untracked files as +added), plus
-        an index of each file's header line for jump-to-file."""
+    def repo_diff_rows(self):
+        """Pretty repo-wide diff as rows: (kind, lineno, text, lang).
+        kinds: file, hunk, add, del, ctx, meta, blank."""
         if self.repo_diff is not None:
             return self.repo_diff[0]
-        out = run(["git", "diff", "HEAD"], self.root) or ""
-        lines = out.splitlines()
+        import re
+        raw = run(["git", "diff", "HEAD"], self.root) or ""
+        rows, index = [], {}
+        lang, new_ln = None, 0
+        hunk_re = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)")
+        for line in raw.splitlines():
+            if line.startswith("diff --git "):
+                rel = line.split(" b/", 1)[-1]
+                if rows:
+                    rows.append(("blank", "", "", None))
+                index[rel] = len(rows)
+                lang = syntax.detect(os.path.basename(rel))
+                rows.append(("file", "", rel, lang))
+            elif line.startswith("Binary files"):
+                rows.append(("meta", "", "(binary file changed)", None))
+            elif line.startswith(("index ", "--- ", "+++ ", "new file",
+                                  "deleted file", "old mode", "new mode",
+                                  "similarity", "rename ")):
+                pass  # plumbing noise
+            elif line.startswith("@@"):
+                mm = hunk_re.match(line)
+                if mm:
+                    new_ln = int(mm.group(1))
+                    ctx = (" " + mm.group(2)) if mm.group(2) else ""
+                    rows.append(("hunk", "", "@ line %d%s" % (new_ln, ctx),
+                                 None))
+                else:
+                    rows.append(("hunk", "", line, None))
+            elif line.startswith("+"):
+                rows.append(("add", str(new_ln), line[1:], lang))
+                new_ln += 1
+            elif line.startswith("-"):
+                rows.append(("del", "", line[1:], lang))
+            else:
+                rows.append(("ctx", str(new_ln), line[1:], lang))
+                new_ln += 1
         for rel in sorted(self.git.files):
             if self.git.files[rel] != "??":
                 continue
-            lines.append("diff --git a/%s b/%s" % (rel, rel))
-            lines.append("new file (untracked)")
+            if rows:
+                rows.append(("blank", "", "", None))
+            index[rel] = len(rows)
+            lang = syntax.detect(os.path.basename(rel))
+            rows.append(("file", "", rel, lang))
+            rows.append(("hunk", "", "@ new file", None))
             try:
                 blob = open(os.path.join(self.root, rel), "rb").read(256 * 1024)
                 if b"\0" in blob[:8192]:
-                    lines.append("+(binary file)")
+                    rows.append(("meta", "", "(binary file)", None))
                 else:
                     body = blob.decode("utf-8", errors="replace").splitlines()
-                    lines.extend("+" + l for l in body[:400])
+                    for n, l in enumerate(body[:400], 1):
+                        rows.append(("add", str(n), l, lang))
             except OSError:
                 pass
-            lines.append("")
-        index = {}
-        for i, l in enumerate(lines):
-            if l.startswith("diff --git "):
-                index[l.split(" b/", 1)[-1]] = i
-        if not lines:
-            lines = ["(no changes)"]
-        self.repo_diff = (lines, index)
-        return lines
+        # per-file +adds/-dels stats onto the file header rows
+        stats, cur = {}, None
+        for kind, _, text, _l in rows:
+            if kind == "file":
+                cur = text
+                stats[cur] = [0, 0]
+            elif cur and kind == "add":
+                stats[cur][0] += 1
+            elif cur and kind == "del":
+                stats[cur][1] += 1
+        rows = [(k, n, t + "  +%d −%d" % tuple(stats[t]), l)
+                if k == "file" else (k, n, t, l)
+                for k, n, t, l in rows]
+        if not rows:
+            rows = [("meta", "", "working tree clean — no changes", None)]
+        self.repo_diff = (rows, index)
+        return rows
 
     def scroll_to_selected_change(self):
         node = self.selected()
-        self.repo_diff_lines()
+        self.repo_diff_rows()
         self.pscroll = self.repo_diff[1].get(node.rel, 0) if node else 0
 
     # ---------- actions ----------

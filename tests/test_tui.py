@@ -105,6 +105,7 @@ def main():
         f.write("#!/bin/sh\ncat > %s\n" % clipfile)
     os.chmod(os.path.join(bindir, "pbcopy"), 0o755)
     os.environ["PATH"] = bindir + ":" + os.environ["PATH"]
+    os.environ["EDITOR"] = "/usr/bin/true"
 
     # --- startup, icons, header ---
     pid, fd = spawn(repo)
@@ -134,14 +135,15 @@ def main():
     check("syntax keyword colored", ok)
 
     # --- mouse drag in preview: selects lines, copies on release ---
-    def m(cb, x, y):  # X10: ESC [ M Cb Cx Cy, all offset by 32, 1-based
-        return bytes([0x1b, ord("["), ord("M"), 32 + cb, 33 + x, 33 + y])
+    def m(b, x, y, release=False):  # SGR: ESC [ < b;x;y M|m (1-based)
+        return b"\x1b[<%d;%d;%d%s" % (b, x + 1, y + 1,
+                                       b"m" if release else b"M")
     px = int(80 * 0.42) + 1            # preview x at default split
     os.write(fd, m(0, px + 10, 3))     # press on preview line 1
-    time.sleep(0.3)                    # hold past mouseinterval (150ms)
+    time.sleep(0.1)
     os.write(fd, m(32, px + 10, 4))    # drag down to line 2
     time.sleep(0.1)
-    os.write(fd, m(3, px + 10, 4))     # release -> copy
+    os.write(fd, m(0, px + 10, 4, release=True))   # release -> copy
     ok, buf = wait_for(fd, b"copied 2 line")
     check("preview drag-select copies", ok)
     check("selection highlight visible", b"48;5;239" in buf)
@@ -154,25 +156,27 @@ def main():
     out = drain(fd, 0.8)
     check("resize keys no crash", b"Traceback" not in out)
 
-    # --- mouse: drag separator + click row (X10 encoding, 80x30 pane) ---
-    def m(cb, x, y):  # X10: ESC [ M Cb Cx Cy, all offset by 32, 1-based
-        return bytes([0x1b, ord("["), ord("M"), 32 + cb, 33 + x, 33 + y])
-    sep = max(24, min(int(80 * 0.42), 54)) - 1
-    os.write(fd, m(0, sep, 10))       # press button1 on separator
-    os.write(fd, m(32, sep + 6, 10))  # drag right (motion-while-pressed)
-    os.write(fd, m(3, sep + 6, 10))   # release
-    os.write(fd, m(0, 3, 2) + m(3, 3, 2))  # click row 2 in the tree
+    # --- mouse: drag separator, click row, wheel both ways (SGR) ---
+    sep = max(24, min(int(80 * 0.48), 54)) - 1   # split is 0.48 after >><
+    os.write(fd, m(0, sep, 10))                  # press on separator
+    time.sleep(0.1)
+    os.write(fd, m(32, sep + 4, 10))             # drag right
+    os.write(fd, m(0, sep + 4, 10, release=True))
+    os.write(fd, m(0, 3, 2) + m(0, 3, 2, release=True))  # click tree row
+    os.write(fd, m(65, 60, 10) + m(65, 60, 10))  # wheel DOWN over preview
+    os.write(fd, m(64, 60, 10))                  # wheel up over preview
+    os.write(fd, m(65, 5, 5))                    # wheel down over tree
     out = drain(fd, 0.8)
     check("mouse events no crash", b"Traceback" not in out)
 
     # --- changes view: D shows one repo-wide diff, untracked included ---
     os.write(fd, b"D")
-    ok, buf = wait_for(fd, b"@@")          # hunks of the repo diff
+    ok, buf = wait_for(fd, b"@ line")      # pretty hunk marker
     check("changes view shows diff", ok)
-    if b"+todo" not in buf:                # same frame, may need a moment
-        _, extra = wait_for(fd, b"+todo", timeout=3)
+    if b"@ new file" not in buf:           # same frame, may need a moment
+        _, extra = wait_for(fd, b"@ new file", timeout=3)
         buf += extra
-    check("repo diff includes untracked", b"+todo" in buf)
+    check("repo diff includes untracked", b"@ new file" in buf)
     open(f"{repo}/app.py", "a").write("print('live')\n")   # agent edit
     ok, _ = wait_for(fd, b"live")          # preview picks it up on its own
     check("changes view updates live", ok)
