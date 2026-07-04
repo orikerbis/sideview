@@ -100,7 +100,7 @@ def handle_mouse(stdscr, app):
                 text = "\n".join(lines[a:b + 1])
                 if text and clipboard(text):
                     app.message = "copied %d line(s)" % (b - a + 1)
-            app.psel = None
+            # keep app.psel: highlight stays until the next key/click
         return
 
     if split and bstate & curses.BUTTON1_PRESSED and abs(mx - sep) <= 1:
@@ -156,6 +156,10 @@ def main(stdscr, root):
 
     while True:
         draw(stdscr, app)
+        if app.mouse_on:
+            # ncurses re-emits ?1000h (buttons only) on refresh, which
+            # downgrades drag tracking — re-assert motion-while-pressed
+            os.write(sys.stdout.fileno(), b"\x1b[?1002h")
         ch = stdscr.getch()
         app.message = ""
 
@@ -171,6 +175,8 @@ def main(stdscr, root):
         if ch == curses.KEY_MOUSE:
             handle_mouse(stdscr, app)
             continue
+
+        app.psel = None  # any keypress clears the copy-selection highlight
 
         if app.filter_input:
             if ch == 27:

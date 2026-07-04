@@ -142,8 +142,9 @@ def main():
     os.write(fd, m(32, px + 10, 4))    # drag down to line 2
     time.sleep(0.1)
     os.write(fd, m(3, px + 10, 4))     # release -> copy
-    ok, _ = wait_for(fd, b"copied 2 line")
+    ok, buf = wait_for(fd, b"copied 2 line")
     check("preview drag-select copies", ok)
+    check("selection highlight visible", b"48;5;239" in buf)
     clip = open(clipfile).read() if os.path.exists(clipfile) else ""
     check("clipboard has selected lines",
           "def f():" in clip and "return 1" in clip)
