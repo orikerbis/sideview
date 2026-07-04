@@ -12,17 +12,19 @@ Keys:
     h               collapse / up  l or Enter   expand dir
     Enter or e      edit file in $EDITOR
     Ctrl-d/Ctrl-u   half page down/up
-    /               fuzzy find file (Enter open, Esc cancel)
+    /               fuzzy find file (type to filter, Up/Down to
+                    browse results, Enter open, Esc cancel)
     D               changes view: one repo-wide diff of everything that
                     changed (untracked files included), updating live as
                     files change on disk (e.g. by an AI agent); the file
                     list on the left jumps to that file's diff section
     [ / ]           previous / next hunk in a diff
     Tab             switch focus: tree <-> preview (j/k etc. scroll the
-                    focused pane)
+                    focused pane); Right arrow on a file also enters the
+                    preview, Left arrow returns to the tree
     d               toggle diff view in preview
     p               toggle preview pane
-    < / >           make the tree pane narrower / wider
+    < / > or - / +  make the tree pane narrower / wider
     J/K             scroll preview
     y / Y           copy selected file's path / contents to clipboard
     mouse           no capture: your terminal's native text selection and
@@ -78,6 +80,12 @@ def main(stdscr, root):
                 app.filter_input, app.filter = False, ""
             elif ch in (10, 13, curses.KEY_ENTER):
                 app.filter_input = False
+            elif ch in (curses.KEY_DOWN, 14):      # browse results (Ctrl-n)
+                app.sel = min(app.sel + 1, max(0, len(app.visible) - 1))
+                continue
+            elif ch in (curses.KEY_UP, 16):        # browse results (Ctrl-p)
+                app.sel = max(app.sel - 1, 0)
+                continue
             elif ch in (curses.KEY_BACKSPACE, 127, 8):
                 app.filter = app.filter[:-1]
             elif 32 <= ch < 127:
@@ -93,9 +101,11 @@ def main(stdscr, root):
             app.focus = "preview" if app.focus == "tree" else "tree"
         elif app.focus == "preview" and ch in (
                 ord("j"), curses.KEY_DOWN, ord("k"), curses.KEY_UP,
-                ord("g"), ord("G"), 4, 21):
+                ord("g"), ord("G"), 4, 21, ord("h"), curses.KEY_LEFT):
             h, _ = stdscr.getmaxyx()
-            if ch in (ord("j"), curses.KEY_DOWN):
+            if ch in (ord("h"), curses.KEY_LEFT):  # back to the tree
+                app.focus = "tree"
+            elif ch in (ord("j"), curses.KEY_DOWN):
                 app.pscroll += 1
             elif ch in (ord("k"), curses.KEY_UP):
                 app.pscroll = max(0, app.pscroll - 1)
@@ -157,6 +167,8 @@ def main(stdscr, root):
             if node and node.is_dir:
                 app.expanded.add(node.rel)
                 app.build_visible()
+            elif node:                             # file: enter the preview
+                app.focus = "preview"
         elif ch in (ord("h"), curses.KEY_LEFT):
             app.collapse_or_parent()
             app.build_visible()
@@ -184,9 +196,9 @@ def main(stdscr, root):
             app.preview_cache = None
         elif ch == ord("p"):
             app.preview_on = not app.preview_on
-        elif ch == ord("<"):
+        elif ch in (ord("<"), ord("-")):           # tree narrower
             app.split = max(0.20, round(app.split - 0.06, 2))
-        elif ch == ord(">"):
+        elif ch in (ord(">"), ord("+"), ord("=")):  # tree wider
             app.split = min(0.80, round(app.split + 0.06, 2))
         elif ch == ord("y"):
             if node and clipboard(node.path):

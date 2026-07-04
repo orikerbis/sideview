@@ -141,8 +141,27 @@ def main():
     clip = open(clipfile).read() if os.path.exists(clipfile) else ""
     check("clipboard has file path", clip.endswith("src/util.py"))
 
+    # --- arrows browse results while typing in / ---
+    os.write(fd, b"/p")                # matches app.py and src/util.py
+    wait_for(fd, b"src/util.py")       # results rendered
+    os.write(fd, b"\x1bOB")            # Down arrow (application mode)
+    # selection bar moves to result 2 and redraws that row
+    ok, buf = wait_for(fd, "▌".encode())
+    check("arrows browse search results", ok and b"src/util.py" in buf)
+    os.write(fd, b"\x1b")              # cancel filter
+    wait_for(fd, b"notes.txt")
+
+    # --- Right arrow on a file focuses the preview, Left returns ---
+    os.write(fd, b"j")                 # select util.py again
+    os.write(fd, b"\x1bOC")            # Right arrow -> preview focus
+    ok, _ = wait_for(fd, "▶".encode())
+    check("right arrow enters preview", ok)
+    os.write(fd, b"\x1bOD")            # Left arrow -> back to tree
+    out = drain(fd, 0.5)
+    check("left arrow returns no crash", b"Traceback" not in out)
+
     # --- resize split: smoke test (q exiting cleanly proves it survived) ---
-    os.write(fd, b">><")
+    os.write(fd, b">><-+")
     out = drain(fd, 0.8)
     check("resize keys no crash", b"Traceback" not in out)
 

@@ -260,6 +260,9 @@ def draw(stdscr, app):
             + " " + app.filter
         put(stdscr, h - 1, 1, prompt,
             curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
+        pos = f"{min(app.sel + 1, len(app.visible))}/{len(app.visible)}"
+        put(stdscr, h - 1, max(0, w - len(pos) - 1), pos,
+            curses.color_pair(theme.C_BAR) | curses.A_BOLD)
         curses.curs_set(1)
         stdscr.move(h - 1, min(w - 1, 1 + cells(prompt)))
     else:
@@ -273,7 +276,7 @@ def draw(stdscr, app):
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 12)
         else:
             put(stdscr, h - 1, 1,
-                "⏎ open  / find  D changes  ⇥ focus  y path  <> size  q quit",
+                "⏎ open  / find  D changes  →← focus  y path  -+ size  q quit",
                 curses.color_pair(theme.C_BAR), w - 12)
         pos = f"{min(app.sel + 1, len(app.visible))}/{len(app.visible)}"
         put(stdscr, h - 1, max(0, w - len(pos) - 1), pos,

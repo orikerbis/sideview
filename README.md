@@ -64,13 +64,13 @@ or split your iTerm2/Terminal window and run it there.
 | `l` / `h` | expand dir / collapse (or jump to parent) |
 | `Enter` | open dir, or edit file in `$EDITOR` |
 | `e` | edit file (even from search results) |
-| `/` | fuzzy find file (`Enter` open, `Esc` cancel) |
+| `/` | fuzzy find file (`↑`/`↓` browse results while typing, `Enter` open, `Esc` cancel) |
 | `D` | changes view: changed files + live diff preview (`Esc` exits) |
 | `[` / `]` | previous / next diff hunk |
-| `Tab` | focus tree ↔ preview (focused pane gets j/k, gg/G, Ctrl-d/u) |
+| `Tab` or `→` / `←` | focus tree ↔ preview (`→` on a file enters the preview; focused pane gets j/k, gg/G, Ctrl-d/u) |
 | `d` | toggle git-diff view in preview |
 | `p` | toggle preview pane |
-| `<` / `>` | make the tree pane narrower / wider |
+| `<` `>` or `-` `+` | make the tree pane narrower / wider |
 | `J` / `K` | scroll preview |
 | `.` | show hidden files |
 | `r` | refresh |
