@@ -34,7 +34,6 @@ class App:
         self.preview_on = True
         self.split = 0.42  # tree pane fraction of the width; < > adjust
         self.dragging = False  # mouse-dragging the pane separator
-        self.mouse_on = True   # m toggles: off = terminal-native selection
         self.psel = None       # [start, end] line selection in the preview
         self.psel_active = False
         self.focus = "tree"    # Tab toggles: "tree" | "preview"

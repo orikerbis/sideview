@@ -24,8 +24,6 @@ Keys:
     p               toggle preview pane
     < / >           make the tree pane narrower / wider
     J/K             scroll preview
-    m               copy mode: release the mouse so the terminal can
-                    select/copy text natively; m again re-enables mouse
     y / Y           copy selected file's path / contents to clipboard
     mouse           click select, double-click open, wheel scroll,
                     drag the pane separator to resize; drag over preview
@@ -186,9 +184,8 @@ def main(stdscr, root):
 
     while True:
         draw(stdscr, app)
-        if app.mouse_on:
-            # re-assert each frame: editors/ncurses can reset the modes
-            os.write(sys.stdout.fileno(), MOUSE_ON)
+        # re-assert each frame: editors/ncurses can reset the modes
+        os.write(sys.stdout.fileno(), MOUSE_ON)
         ch = stdscr.getch()
         app.message = ""
 
@@ -328,11 +325,6 @@ def main(stdscr, root):
             app.split = max(0.20, round(app.split - 0.06, 2))
         elif ch == ord(">"):
             app.split = min(0.80, round(app.split + 0.06, 2))
-        elif ch == ord("m"):
-            app.mouse_on = not app.mouse_on
-            set_mouse(app.mouse_on)
-            if app.mouse_on:
-                app.message = "mouse on"
         elif ch == ord("y"):
             if node and clipboard(node.path):
                 app.message = "copied path: " + node.rel
@@ -382,4 +374,4 @@ def cli():
     except KeyboardInterrupt:
         pass
     finally:
-        os.write(sys.stdout.fileno(), b"\x1b[?1002l")  # mouse tracking off
+        os.write(sys.stdout.fileno(), MOUSE_OFF)  # mouse tracking off

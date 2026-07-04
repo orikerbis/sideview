@@ -192,14 +192,6 @@ def main():
     ok, _ = wait_for(fd, b"README.md")     # full tree is back
     check("esc exits changes view", ok)
 
-    # --- copy mode: m toggles terminal mouse tracking off/on ---
-    os.write(fd, b"m")
-    ok, _ = wait_for(fd, b"\x1b[?1002l")
-    check("copy mode disables mouse tracking", ok)
-    os.write(fd, b"m")
-    ok, _ = wait_for(fd, b"\x1b[?1002h")
-    check("m re-enables mouse tracking", ok)
-
     os.write(fd, b"q")
     status, _ = wait_exit(pid, fd)
     check("q clean exit", status == 0)

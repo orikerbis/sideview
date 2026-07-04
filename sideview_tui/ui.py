@@ -279,18 +279,13 @@ def draw(stdscr, app):
         if app.message:
             put(stdscr, h - 1, 1, app.message,
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
-        elif not app.mouse_on:
-            put(stdscr, h - 1, 1,
-                "COPY MODE selects the WHOLE terminal — for file text only,"
-                " press m, then drag inside the preview",
-                curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 12)
         elif app.changes:
             put(stdscr, h - 1, 1,
                 "CHANGES  j/k file  [ ] hunks  ⇥ focus  ⏎ edit  Esc back",
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 12)
         else:
             put(stdscr, h - 1, 1,
-                "⏎ open  / find  D changes  ⇥ focus  y path  m copy  q quit",
+                "⏎ open  / find  D changes  ⇥ focus  y path  <> size  q quit",
                 curses.color_pair(theme.C_BAR), w - 12)
         pos = f"{min(app.sel + 1, len(app.visible))}/{len(app.visible)}"
         put(stdscr, h - 1, max(0, w - len(pos) - 1), pos,
