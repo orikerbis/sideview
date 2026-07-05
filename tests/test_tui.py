@@ -161,6 +161,16 @@ def main():
     clip = open(clipfile).read() if os.path.exists(clipfile) else ""
     check("clipboard has dragged lines", "def f():" in clip)
 
+    # --- mouse: drag the separator to resize (feedback message) ---
+    sep = int(80 * 0.42) - 1
+    os.write(fd, sgr(0, sep, 10))          # press on the separator
+    time.sleep(0.1)
+    os.write(fd, sgr(32, sep + 6, 10))     # drag right
+    ok, _ = wait_for(fd, b"resize")
+    check("separator drag resizes", ok)
+    os.write(fd, sgr(0, sep + 6, 10, release=True))
+    drain(fd, 0.3)
+
     # --- mouse (X10): wheel down + click still parsed ---
     os.write(fd, x10(0, 3, 2) + x10(3, 3, 2))   # click + release row 2
     os.write(fd, x10(65, px + 5, 5))            # wheel down over preview
@@ -230,8 +240,10 @@ def main():
     os.write(fd, b"s")                 # stage app.py again
     wait_for(fd, b"staged app.py")
     os.write(fd, b"C")                 # auto-commit with generated message
-    ok, _ = wait_for(fd, b"committed")
+    ok, buf = wait_for(fd, b"committed")
     check("auto-commit works", ok)
+    # mouse tracking must be OFF while suspended for the commit
+    check("mouse disabled during commit", b"\x1b[?1002l" in buf)
     log = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s"],
                          capture_output=True, text=True).stdout.strip()
     check("auto commit message generated", log == "update app.py")
@@ -276,6 +288,18 @@ def main():
     status, out = wait_exit(pid, fd)
     check("ctrl-c exit code 0", status == 0)
     check("no traceback on ctrl-c", b"Traceback" not in out)
+
+    # --- doctor + emoji fallback (zero-config) ---
+    r = subprocess.run([sys.executable, SIDEVIEW, "--doctor"],
+                       capture_output=True, text=True)
+    check("doctor runs", r.returncode == 0 and "icon style" in r.stdout)
+    os.environ["SIDEVIEW_ICONS"] = "emoji"
+    pid, fd = spawn(repo)
+    ok, _ = wait_for(fd, "🐍".encode())
+    check("emoji icon override", ok)
+    os.write(fd, b"q")
+    wait_exit(pid, fd)
+    del os.environ["SIDEVIEW_ICONS"]
 
     print()
     if FAILURES:

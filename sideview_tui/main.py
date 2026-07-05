@@ -2,6 +2,8 @@
 
 Usage:
     sideview [DIR]
+    sideview --doctor          check fonts/editor/git/claude setup
+    sideview --install-font    install the Symbols Nerd Font (icons)
 
 Environment:
     SIDEVIEW_ICONS=nerd|emoji|off   icon style (default nerd)
@@ -50,12 +52,8 @@ import sys
 import time
 
 from . import theme
-from .app import App, Node
+from .app import App, MOUSE_OFF, MOUSE_ON, Node
 from .ui import draw, layout
-
-MOUSE_ON = b"\x1b[?1002h\x1b[?1006h"   # motion-while-pressed + SGR coords
-MOUSE_OFF = b"\x1b[?1006l\x1b[?1002l"
-
 
 def set_mouse(on):
     os.write(sys.stdout.fileno(), MOUSE_ON if on else MOUSE_OFF)
@@ -130,6 +128,7 @@ def handle_mouse(stdscr, app, ev):
 
     if app.dragging:
         app.split = min(0.80, max(0.20, mx / max(w, 1)))
+        app.message = "◂ resize: %d%% ▸ (also - / +)" % round(app.split * 100)
         if released:
             app.dragging = False
         return
@@ -154,10 +153,11 @@ def handle_mouse(stdscr, app, ev):
             # keep app.psel: highlight stays until the next key/click
         return
 
-    if press and split and abs(mx - sep) <= 1:
+    if press and split and abs(mx - sep) <= 2:
         app.dragging = True
+        app.message = "◂ resize ▸"
         return
-    if press and split and mx > sep + 1 and 3 <= my <= h - 2:
+    if press and split and mx > sep + 2 and 3 <= my <= h - 2:
         line = app.pscroll + my - 3
         app.psel = [line, line]
         app.psel_active = True
@@ -491,6 +491,12 @@ def _loop(stdscr, app):
 
 
 def cli():
+    if "--doctor" in sys.argv[1:]:
+        from .doctor import run_doctor
+        sys.exit(run_doctor())
+    if "--install-font" in sys.argv[1:]:
+        from .doctor import install_font
+        sys.exit(install_font())
     args = [a for a in sys.argv[1:] if a not in ("-h", "--help")]
     if len(args) != len(sys.argv) - 1:
         print(__doc__)

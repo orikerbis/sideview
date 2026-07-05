@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 
 from . import syntax
@@ -18,6 +19,24 @@ PREVIEW_MAX_LINES = 800
 EDITOR = os.environ.get("EDITOR") or ("nvim" if shutil.which("nvim") else "vim")
 STATE_PATH = (os.environ.get("SIDEVIEW_STATE")
               or os.path.expanduser("~/.config/sideview/state.json"))
+MOUSE_ON = b"\x1b[?1002h\x1b[?1006h"   # motion-while-pressed + SGR coords
+MOUSE_OFF = b"\x1b[?1006l\x1b[?1002l"
+
+
+def suspend_tui():
+    """Leave curses for an external command: stop mouse reports first so
+    they don't spray escape sequences into the shell/editor."""
+    os.write(sys.stdout.fileno(), MOUSE_OFF)
+    curses.def_prog_mode()
+    curses.endwin()
+
+
+def resume_tui(stdscr):
+    curses.reset_prog_mode()
+    curses.flushinp()   # drop any mouse/key junk queued while suspended
+    stdscr.clear()
+    stdscr.refresh()
+    os.write(sys.stdout.fileno(), MOUSE_ON)
 MAX_STATE_REPOS = 20
 
 
@@ -360,12 +379,9 @@ class App:
         if node is None or node.is_dir:
             return
         cmd = [EDITOR] + (["+%d" % line] if line else []) + [node.path]
-        curses.def_prog_mode()
-        curses.endwin()
+        suspend_tui()
         subprocess.call(cmd)
-        curses.reset_prog_mode()
-        stdscr.clear()
-        stdscr.refresh()
+        resume_tui(stdscr)
         self.git.refresh()
         self.preview_cache = None
         self.repo_diff = None
@@ -406,14 +422,11 @@ class App:
     def run_commit(self, stdscr, auto=False):
         """git commit with a generated message: `auto` commits directly,
         otherwise $EDITOR opens prefilled for review. Returns exit code."""
-        curses.def_prog_mode()
-        curses.endwin()
+        suspend_tui()
         print("sideview: generating commit message…", flush=True)
         msg = self.commit_suggestion()
         cmd = ["git", "commit", "-m", msg] + ([] if auto else ["-e"])
         rc = subprocess.call(cmd, cwd=self.root)
-        curses.reset_prog_mode()
-        stdscr.clear()
-        stdscr.refresh()
+        resume_tui(stdscr)
         self._after_git_change()
         return rc

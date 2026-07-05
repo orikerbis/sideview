@@ -71,7 +71,33 @@ NAME_CLASS = {
     ".gitmodules": "git",
 }
 
-ICON_STYLE = os.environ.get("SIDEVIEW_ICONS", "nerd").lower()
+def nerd_font_installed():
+    """Best-effort: is any Nerd Font present in the usual font dirs?"""
+    import re
+    pat = re.compile(r"nerd|meslolgs|[ -]nf[- .]", re.IGNORECASE)
+    dirs = [
+        os.path.expanduser("~/Library/Fonts"), "/Library/Fonts",
+        os.path.expanduser("~/.local/share/fonts"),
+        os.path.expanduser("~/.fonts"), "/usr/share/fonts",
+        "/usr/local/share/fonts",
+    ]
+    seen = 0
+    for d in dirs:
+        for root, _sub, files in os.walk(d):
+            for f in files:
+                seen += 1
+                if seen > 5000:
+                    return False
+                if pat.search(f):
+                    return True
+    return False
+
+
+_env = os.environ.get("SIDEVIEW_ICONS", "").lower()
+if _env:
+    ICON_STYLE = _env
+else:  # zero-config: nerd glyphs when a Nerd Font exists, emoji otherwise
+    ICON_STYLE = "nerd" if nerd_font_installed() else "emoji"
 ICONS = {"emoji": EMOJI, "nerd": NERD}.get(ICON_STYLE)
 
 
