@@ -51,6 +51,11 @@ class App:
         self.preview_cache = None
         self.last_git = time.time()
         self.message = ""
+        self.dragging = False        # mouse-dragging the pane separator
+        self.psel = None             # [start, end] preview line selection
+        self.psel_active = False
+        self.last_click_t = 0.0      # double-click detection
+        self.last_click_idx = -1
         self.follow = False          # F: auto-select the newest change
         self.pending_discard = None  # rel awaiting X confirmation
         self.psearch = ""            # search string inside the preview
@@ -365,11 +370,48 @@ class App:
         self.preview_cache = None
         self.repo_diff = None
 
-    def run_commit(self, stdscr):
-        """Interactive `git commit` (opens $EDITOR); returns exit code."""
+    def commit_suggestion(self):
+        """Commit message for the staged diff: Claude CLI when available,
+        otherwise a heuristic file summary. SIDEVIEW_COMMIT_AI=off skips AI."""
+        ns = run(["git", "diff", "--staged", "--name-status"], self.root) or ""
+        verbs = {"A": "add", "M": "update", "D": "remove", "R": "rename"}
+        groups = {}
+        for line in ns.splitlines():
+            parts = line.split("\t")
+            if not parts[0]:
+                continue
+            verb = verbs.get(parts[0][0], "update")
+            groups.setdefault(verb, []).append(os.path.basename(parts[-1]))
+        summary = "; ".join(
+            v + " " + ", ".join(fs[:3]) + ("…" if len(fs) > 3 else "")
+            for v, fs in groups.items()) or "update"
+        if (os.environ.get("SIDEVIEW_COMMIT_AI", "on") != "off"
+                and shutil.which("claude")):
+            diff = run(["git", "diff", "--staged"], self.root) or ""
+            try:
+                r = subprocess.run(
+                    ["claude", "-p", "--model", "haiku",
+                     "Write a single-line git commit message (max 70 chars,"
+                     " imperative mood) for this diff. Reply with only the"
+                     " message, nothing else."],
+                    input=diff[:60000], capture_output=True, text=True,
+                    timeout=45)
+                out = (r.stdout or "").strip()
+                if r.returncode == 0 and out:
+                    return out.splitlines()[0].strip()[:120]
+            except Exception:
+                pass
+        return summary
+
+    def run_commit(self, stdscr, auto=False):
+        """git commit with a generated message: `auto` commits directly,
+        otherwise $EDITOR opens prefilled for review. Returns exit code."""
         curses.def_prog_mode()
         curses.endwin()
-        rc = subprocess.call(["git", "commit"], cwd=self.root)
+        print("sideview: generating commit message…", flush=True)
+        msg = self.commit_suggestion()
+        cmd = ["git", "commit", "-m", msg] + ([] if auto else ["-e"])
+        rc = subprocess.call(cmd, cwd=self.root)
         curses.reset_prog_mode()
         stdscr.clear()
         stdscr.refresh()

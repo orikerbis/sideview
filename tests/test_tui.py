@@ -107,6 +107,7 @@ def main():
     os.environ["PATH"] = bindir + ":" + os.environ["PATH"]
     os.environ["EDITOR"] = "/usr/bin/true"
     os.environ["SIDEVIEW_STATE"] = os.path.join(auxdir, "state.json")
+    os.environ["SIDEVIEW_COMMIT_AI"] = "off"   # deterministic commit msgs
 
     # --- startup, icons, header ---
     pid, fd = spawn(repo)
@@ -141,6 +142,31 @@ def main():
     check("y copies path", ok)
     clip = open(clipfile).read() if os.path.exists(clipfile) else ""
     check("clipboard has file path", clip.endswith("src/util.py"))
+
+    # --- mouse (SGR): drag-select lines in the preview, copy on release ---
+    def sgr(b, x, y, release=False):
+        return b"\x1b[<%d;%d;%d%s" % (b, x + 1, y + 1,
+                                       b"m" if release else b"M")
+    def x10(cb, x, y):
+        return bytes([0x1b, ord("["), ord("M"), 32 + cb, 33 + x, 33 + y])
+    px = int(80 * 0.42) + 1
+    os.write(fd, sgr(0, px + 10, 3))       # press on line 1
+    time.sleep(0.1)
+    os.write(fd, sgr(32, px + 10, 4))      # drag to line 2
+    time.sleep(0.1)
+    os.write(fd, sgr(0, px + 10, 4, release=True))
+    ok, buf = wait_for(fd, b"copied 2 line")
+    check("mouse drag-select copies", ok)
+    check("selection highlight shown", b"48;5;239" in buf)
+    clip = open(clipfile).read() if os.path.exists(clipfile) else ""
+    check("clipboard has dragged lines", "def f():" in clip)
+
+    # --- mouse (X10): wheel down + click still parsed ---
+    os.write(fd, x10(0, 3, 2) + x10(3, 3, 2))   # click + release row 2
+    os.write(fd, x10(65, px + 5, 5))            # wheel down over preview
+    os.write(fd, x10(64, px + 5, 5))            # wheel up
+    out = drain(fd, 0.6)
+    check("x10 mouse no crash", b"Traceback" not in out)
 
     # --- arrows browse results while typing in / ---
     os.write(fd, b"/p")                # matches app.py and src/util.py
@@ -201,6 +227,14 @@ def main():
     os.write(fd, b"c")
     ok, _ = wait_for(fd, b"nothing staged")
     check("commit guard", ok)
+    os.write(fd, b"s")                 # stage app.py again
+    wait_for(fd, b"staged app.py")
+    os.write(fd, b"C")                 # auto-commit with generated message
+    ok, _ = wait_for(fd, b"committed")
+    check("auto-commit works", ok)
+    log = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s"],
+                         capture_output=True, text=True).stdout.strip()
+    check("auto commit message generated", log == "update app.py")
 
     # --- follow mode: F auto-jumps to the newest change ---
     os.write(fd, b"F")

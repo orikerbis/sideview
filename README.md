@@ -18,8 +18,10 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 - **Agent follow mode** (`F`): auto-jumps to whichever file changed most
   recently — leave it on while an AI agent works and the diff tracks it;
   freshly-changed files pulse orange in the tree for 30s
-- **Git actions**: `s` stage, `u` unstage, `c` commit (opens your editor),
-  `X` discard (double-press confirm); `Enter` on a focused diff/preview
+- **Git actions**: `s` stage, `u` unstage, `X` discard (double-press
+  confirm); `c` commit with your editor prefilled by a **generated commit
+  message** (Claude CLI if installed, heuristic otherwise), `C` commits
+  instantly with the generated message; `Enter` on a focused diff/preview
   opens Neovim at that exact line
 - **Per-repo persistence**: expanded folders, split size and hidden-files
   toggle are remembered between sessions (`~/.config/sideview/state.json`)
@@ -38,9 +40,10 @@ live in a side terminal pane next to your editor. Pure Python stdlib
   `$EDITOR` (defaults to `nvim` when installed, else `vim`)
 - **Dark 256-color theme** matching **tokyonight-night** (the LazyVim
   default) with graceful 8-color fallback
-- **No mouse capture**: your terminal's native text selection and copy
-  (⌘C) work everywhere by default; the scroll wheel scrolls the focused
-  pane (terminals send arrow keys to full-screen apps)
+- **Mouse support** (dual X10/SGR protocol parsing — works on terminals
+  old ncurses can't handle): click to select, double-click to open, wheel
+  scrolls either pane, drag the separator to resize, drag over preview
+  lines to select and auto-copy them; hold ⌥ Option for native selection
 - **Live updates**: preview re-reads changed files (~1s); git status and
   the tree pick up new/deleted files every ~3s
 - **VSCode-style file icons**: colored Nerd Font glyphs by default,
@@ -82,7 +85,7 @@ or split your iTerm2/Terminal window and run it there.
 | `D` | changes view: changed files + live diff preview (`Esc` exits) |
 | `F` | follow mode: auto-jump to the newest change (great with AI agents) |
 | `s` / `u` | git stage / unstage selected file |
-| `c` | git commit (opens $EDITOR; needs something staged) |
+| `c` / `C` | commit: editor prefilled with generated message / instant auto-commit |
 | `X` | discard changes to selected file (press twice to confirm) |
 | `/` (preview focused) | search inside the file/diff; `n` / `N` next/prev match |
 | `[` / `]` | previous / next diff hunk |
@@ -94,13 +97,14 @@ or split your iTerm2/Terminal window and run it there.
 | `.` | show hidden files |
 | `r` | refresh |
 | `q` / `Ctrl-C` | quit |
-| mouse | no capture — native terminal selection/copy; wheel scrolls the focused pane |
+| mouse | click/double-click, wheel, drag separator to resize, drag in preview to copy lines (⌥-drag = native selection) |
 | `y` / `Y` | copy selected file's path / contents to clipboard |
 
 ## Configuration
 
 | Env var | Values | Default |
 |---|---|---|
+| `SIDEVIEW_COMMIT_AI` | `on`, `off` | `on` (uses `claude` CLI when found) |
 | `SIDEVIEW_ICONS` | `nerd`, `emoji`, `off` | `nerd` |
 | `EDITOR` | any editor command | `nvim`, falling back to `vim` |
 

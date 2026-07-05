@@ -22,7 +22,9 @@ Keys:
     F               follow mode: auto-jump to the newest changed file
                     (leave on while an AI agent edits your repo)
     s / u           git stage / unstage the selected file
-    c               git commit (opens $EDITOR)
+    c / C           git commit: c opens $EDITOR prefilled with a generated
+                    message (Claude CLI if available, else a summary);
+                    C commits immediately with the generated message
     X               discard changes to the selected file (press twice)
     Tab             switch focus: tree <-> preview (j/k etc. scroll the
                     focused pane); Right arrow on a file also enters the
@@ -33,9 +35,10 @@ Keys:
     J/K             scroll preview
     y / Y           copy selected file's path / contents to clipboard
     / (in preview)  search inside the file/diff; n / N next / prev match
-    mouse           no capture: your terminal's native text selection and
-                    copy work everywhere; the scroll wheel scrolls the
-                    focused pane (terminals send arrow keys in TUIs)
+    mouse           click select, double-click open, wheel scroll both
+                    panes, drag the separator to resize, drag over preview
+                    lines to select+copy them; hold Option (Alt) to use
+                    the terminal's native text selection instead
     .               toggle hidden files
     r               refresh
     q               quit
@@ -49,6 +52,137 @@ import time
 from . import theme
 from .app import App, Node
 from .ui import draw, layout
+
+MOUSE_ON = b"\x1b[?1002h\x1b[?1006h"   # motion-while-pressed + SGR coords
+MOUSE_OFF = b"\x1b[?1006l\x1b[?1002l"
+
+
+def set_mouse(on):
+    os.write(sys.stdout.fileno(), MOUSE_ON if on else MOUSE_OFF)
+
+
+def read_escape(stdscr):
+    """After a 27, parse a mouse report in SGR ('[<b;x;y M|m') or X10
+    ('[M' + 3 bytes) encoding. Returns an event dict, "csi" for other
+    sequences, or None for a plain Esc. We parse both protocols ourselves:
+    old ncurses can't report wheel-down and some terminals lack SGR."""
+    stdscr.timeout(0)
+    try:
+        c = stdscr.getch()
+        if c == -1:
+            return None
+        if c != ord("["):
+            curses.ungetch(c)
+            return None
+        c = stdscr.getch()
+        if c == ord("M"):                       # X10: Cb Cx Cy (+32)
+            cb, cx, cy = (stdscr.getch() for _ in range(3))
+            if -1 in (cb, cx, cy):
+                return "csi"
+            b = cb - 32
+            wheel = bool(b & 64)
+            release = (b & 3) == 3 and not wheel
+            if release:
+                b &= ~3                          # X10 release hides button
+            return {"b": b, "x": cx - 33, "y": cy - 33, "release": release}
+        if c != ord("<"):
+            while c != -1 and not 64 <= c <= 126:  # swallow unknown CSI
+                c = stdscr.getch()
+            return "csi"
+        buf = ""
+        while True:
+            c = stdscr.getch()
+            if c == -1:
+                return "csi"
+            if chr(c) in "Mm":
+                fin = chr(c)
+                break
+            buf += chr(c)
+        try:
+            b, x, y = (int(t) for t in buf.split(";"))
+        except ValueError:
+            return "csi"
+        return {"b": b, "x": x - 1, "y": y - 1, "release": fin == "m"}
+    finally:
+        stdscr.timeout(1000)
+
+
+def handle_mouse(stdscr, app, ev):
+    mx, my, released = ev["x"], ev["y"], ev["release"]
+    b = ev["b"]
+    wheel = b & 64
+    motion = bool(b & 32) and not wheel
+    press = not released and not motion and not wheel and (b & 3) == 0
+    h, w = stdscr.getmaxyx()
+    split, tree_w = layout(app, w)
+    sep = tree_w - 1
+
+    if wheel:
+        down = (b & 1) == 1
+        if split and mx >= tree_w:
+            app.pscroll = max(0, app.pscroll + (3 if down else -3))
+        elif app.visible:
+            app.sel = max(0, min(app.sel + (3 if down else -3),
+                                 len(app.visible) - 1))
+            if app.changes:
+                app.scroll_to_selected_change()
+        return
+
+    if app.dragging:
+        app.split = min(0.80, max(0.20, mx / max(w, 1)))
+        if released:
+            app.dragging = False
+        return
+
+    # drag in the preview pane: select lines, copy on release
+    if app.psel_active and app.psel:
+        app.psel[1] = max(0, app.pscroll + my - 3)
+        if released:
+            app.psel_active = False
+            if app.changes:
+                lines = [r[2] for r in app.repo_diff_rows()]
+            else:
+                node = app.selected()
+                lines = (app.preview_lines(node)
+                         if node and not node.is_dir else None)
+            if lines:
+                a, bb = sorted(app.psel)
+                bb = min(bb, len(lines) - 1)
+                text = "\n".join(lines[a:bb + 1])
+                if text and clipboard(text):
+                    app.message = "copied %d line(s)" % (bb - a + 1)
+            # keep app.psel: highlight stays until the next key/click
+        return
+
+    if press and split and abs(mx - sep) <= 1:
+        app.dragging = True
+        return
+    if press and split and mx > sep + 1 and 3 <= my <= h - 2:
+        line = app.pscroll + my - 3
+        app.psel = [line, line]
+        app.psel_active = True
+        return
+
+    # click in the tree: select; fast second click: open
+    if press and mx < tree_w and 1 <= my <= h - 2:
+        idx = app.scroll + my - 1
+        if idx < len(app.visible):
+            double = (time.time() - app.last_click_t < 0.4
+                      and app.last_click_idx == idx)
+            app.last_click_t, app.last_click_idx = time.time(), idx
+            app.sel = idx
+            app.pscroll = 0
+            app.psel = None
+            if app.changes:
+                app.scroll_to_selected_change()
+            if double:
+                node = app.visible[idx]
+                if node.is_dir:
+                    app.toggle_dir(node)
+                else:
+                    app.edit(stdscr, node)
+                app.build_visible()
+
 
 def clipboard(text):
     try:
@@ -86,6 +220,7 @@ def main(stdscr, root):
     curses.raw()  # deliver Ctrl-C as a key (handled as quit), not SIGINT
     curses.curs_set(0)
     stdscr.timeout(1000)
+    set_mouse(True)
     app = App(root)
     app.build_visible()
 
@@ -98,6 +233,8 @@ def main(stdscr, root):
 def _loop(stdscr, app):
     while True:
         draw(stdscr, app)
+        # re-assert each frame: editors/ncurses can reset the modes
+        os.write(sys.stdout.fileno(), MOUSE_ON)
         ch = stdscr.getch()
         app.message = ""
 
@@ -116,6 +253,18 @@ def _loop(stdscr, app):
                             app.scroll_to_selected_change()
                             break
             continue
+
+        if ch == 27:
+            ev = read_escape(stdscr)
+            if isinstance(ev, dict):
+                handle_mouse(stdscr, app, ev)
+                continue
+            if ev == "csi":
+                continue
+            # plain Esc falls through to the handlers below
+        elif ch != -1:
+            # any real keypress clears the copy-selection highlight
+            app.psel, app.psel_active = None, False
 
         if app.psearch_input:
             if ch == 27:
@@ -287,9 +436,9 @@ def _loop(stdscr, app):
                     app.pending_discard = node.rel
                     app.message = ("discard changes to %s? press X again"
                                    % node.rel)
-        elif ch == ord("c"):
+        elif ch in (ord("c"), ord("C")):
             if app.git.counts()[0]:
-                rc = app.run_commit(stdscr)
+                rc = app.run_commit(stdscr, auto=(ch == ord("C")))
                 app.message = "committed" if rc == 0 else "commit aborted"
             else:
                 app.message = "nothing staged (s to stage)"
@@ -355,3 +504,5 @@ def cli():
         curses.wrapper(main, root)
     except KeyboardInterrupt:
         pass
+    finally:
+        os.write(sys.stdout.fileno(), MOUSE_OFF)
