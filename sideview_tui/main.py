@@ -494,6 +494,40 @@ def _loop(stdscr, app):
         app.pending_g = False
 
 
+def maybe_install_font():
+    """First-run default: if no Nerd Font is installed, fetch the Symbols
+    Nerd Font automatically (once). Opt out: SIDEVIEW_NO_FONT_INSTALL=1."""
+    if os.environ.get("SIDEVIEW_ICONS") or \
+            os.environ.get("SIDEVIEW_NO_FONT_INSTALL"):
+        return
+    from . import icons
+    if icons.nerd_font_installed():
+        return
+    import json
+    from .app import STATE_PATH
+    try:
+        state = json.load(open(STATE_PATH))
+    except Exception:
+        state = {}
+    if state.get("_meta", {}).get("font_install_attempted"):
+        return
+    state.setdefault("_meta", {})["font_install_attempted"] = True
+    try:
+        os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+        json.dump(state, open(STATE_PATH, "w"), indent=1)
+    except OSError:
+        pass
+    print("sideview: no Nerd Font found — installing icon glyphs "
+          "(Symbols Nerd Font)…")
+    try:
+        from .doctor import install_font
+        if install_font() == 0:
+            print("Icons appear after you restart your terminal; "
+                  "using emoji icons for this session.\n")
+    except Exception as e:
+        print("Font install failed (%s) — using emoji icons." % e)
+
+
 def cli():
     if "--doctor" in sys.argv[1:]:
         from .doctor import run_doctor
@@ -510,6 +544,7 @@ def cli():
         sys.exit(f"sideview: not a directory: {root}")
     locale.setlocale(locale.LC_ALL, "")
     os.environ.setdefault("ESCDELAY", "50")
+    maybe_install_font()
     try:
         curses.wrapper(main, root)
     except KeyboardInterrupt:

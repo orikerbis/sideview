@@ -102,10 +102,11 @@ class App:
             "show_hidden": self.show_hidden,
             "saved_at": time.time(),
         }
-        if len(all_state) > MAX_STATE_REPOS:
-            oldest = sorted(all_state,
+        repos = [r for r in all_state if not r.startswith("_")]
+        if len(repos) > MAX_STATE_REPOS:
+            oldest = sorted(repos,
                             key=lambda r: all_state[r].get("saved_at", 0))
-            for r in oldest[:len(all_state) - MAX_STATE_REPOS]:
+            for r in oldest[:len(repos) - MAX_STATE_REPOS]:
                 del all_state[r]
         try:
             os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)

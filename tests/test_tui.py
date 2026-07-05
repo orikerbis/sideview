@@ -108,6 +108,7 @@ def main():
     os.environ["EDITOR"] = "/usr/bin/true"
     os.environ["SIDEVIEW_STATE"] = os.path.join(auxdir, "state.json")
     os.environ["SIDEVIEW_COMMIT_AI"] = "off"   # deterministic commit msgs
+    os.environ["SIDEVIEW_ICONS"] = "nerd"      # CI runners have no fonts
 
     # --- startup, icons, header ---
     pid, fd = spawn(repo)
@@ -302,7 +303,7 @@ def main():
     check("emoji icon override", ok)
     os.write(fd, b"q")
     wait_exit(pid, fd)
-    del os.environ["SIDEVIEW_ICONS"]
+    os.environ["SIDEVIEW_ICONS"] = "nerd"
 
     print()
     if FAILURES:

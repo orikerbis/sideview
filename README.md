@@ -57,12 +57,14 @@ pipx install git+https://github.com/orikerbis/sideview   # as a package
 ln -sf "$PWD/sideview" ~/.local/bin/sideview
 
 sideview --doctor         # check your setup (fonts, editor, git, claude)
-sideview --install-font   # optional: install icon glyphs (Nerd Font symbols)
 ```
 
-Zero-config: icons auto-detect (Nerd Font glyphs when one is installed,
-emoji otherwise), the editor auto-detects (`nvim`, then `vim`), and the
-theme falls back gracefully on basic terminals.
+Zero-config: on first run sideview installs the icon glyph font
+automatically if none is found (Symbols Nerd Font; opt out with
+`SIDEVIEW_NO_FONT_INSTALL=1`, or run `sideview --install-font` manually).
+Icons auto-detect (Nerd Font glyphs when installed, emoji otherwise), the
+editor auto-detects (`nvim`, then `vim`), and the theme falls back
+gracefully on basic terminals.
 
 Requires Python 3.8+. For the default icon style, use a
 [Nerd Font](https://www.nerdfonts.com) in your terminal (e.g. MesloLGS NF,
