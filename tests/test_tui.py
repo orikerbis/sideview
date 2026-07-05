@@ -30,7 +30,9 @@ def make_fixture():
     def g(*a):
         subprocess.run(["git", "-C", d, *a], capture_output=True)
 
-    g("init")
+    g("init", "-b", "main")
+    g("config", "user.email", "t@t")
+    g("config", "user.name", "t")
     open(f"{d}/app.py", "w").write("print('hi')\n")
     open(f"{d}/README.md", "w").write("# test\n")
     os.makedirs(f"{d}/src")

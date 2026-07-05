@@ -106,6 +106,35 @@ def read_escape(stdscr):
         stdscr.timeout(1000)
 
 
+BUTTON5 = getattr(curses, "BUTTON5_PRESSED", 0x200000)
+
+
+def getmouse_event():
+    """Translate an ncurses KEY_MOUSE report into our event dict (newer
+    ncurses consumes SGR/X10 sequences itself instead of passing bytes)."""
+    try:
+        _id, mx, my, _z, bs = curses.getmouse()
+    except curses.error:
+        return None
+    ev = {"b": 0, "x": mx, "y": my, "release": False}
+    if bs & curses.BUTTON1_RELEASED:
+        ev["release"] = True
+    elif bs & curses.BUTTON1_CLICKED:
+        return [dict(ev), dict(ev, release=True)]   # press + release
+    elif bs & curses.BUTTON1_DOUBLE_CLICKED:
+        return [dict(ev), dict(ev, release=True),
+                dict(ev), dict(ev, release=True)]
+    elif bs & curses.BUTTON4_PRESSED:
+        ev["b"] = 64
+    elif bs & BUTTON5:
+        ev["b"] = 65
+    elif bs & curses.REPORT_MOUSE_POSITION:
+        ev["b"] = 32
+    elif not bs & curses.BUTTON1_PRESSED:
+        return None
+    return [ev]
+
+
 def handle_mouse(stdscr, app, ev):
     mx, my, released = ev["x"], ev["y"], ev["release"]
     b = ev["b"]
@@ -221,6 +250,12 @@ def main(stdscr, root):
     curses.raw()  # deliver Ctrl-C as a key (handled as quit), not SIGINT
     curses.curs_set(0)
     stdscr.timeout(1000)
+    try:  # let ncurses deliver KEY_MOUSE where it insists on parsing
+        curses.mousemask(curses.ALL_MOUSE_EVENTS
+                         | curses.REPORT_MOUSE_POSITION)
+        curses.mouseinterval(0)   # raw press/release, no click merging
+    except curses.error:
+        pass
     set_mouse(True)
     app = App(root)
     app.build_visible()
@@ -255,6 +290,10 @@ def _loop(stdscr, app):
                             break
             continue
 
+        if ch == curses.KEY_MOUSE:
+            for ev in getmouse_event() or []:
+                handle_mouse(stdscr, app, ev)
+            continue
         if ch == 27:
             ev = read_escape(stdscr)
             if isinstance(ev, dict):
