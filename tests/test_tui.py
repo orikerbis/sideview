@@ -247,6 +247,9 @@ def main():
     log = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s"],
                          capture_output=True, text=True).stdout.strip()
     check("auto commit message generated", log == "update app.py")
+    os.write(fd, b"P")                 # no remote configured in fixture
+    ok, _ = wait_for(fd, b"push failed")
+    check("push reports failure without remote", ok)
 
     # --- follow mode: F auto-jumps to the newest change ---
     os.write(fd, b"F")

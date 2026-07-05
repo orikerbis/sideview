@@ -419,6 +419,15 @@ class App:
                 pass
         return summary
 
+    def run_push(self, stdscr):
+        """git push with live output; returns exit code."""
+        suspend_tui()
+        print("sideview: git push…", flush=True)
+        rc = subprocess.call(["git", "push"], cwd=self.root)
+        resume_tui(stdscr)
+        self._after_git_change()
+        return rc
+
     def run_commit(self, stdscr, auto=False):
         """git commit with a generated message: `auto` commits directly,
         otherwise $EDITOR opens prefilled for review. Returns exit code."""

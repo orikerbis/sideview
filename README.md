@@ -93,6 +93,7 @@ or split your iTerm2/Terminal window and run it there.
 | `F` | follow mode: auto-jump to the newest change (great with AI agents) |
 | `s` / `u` | git stage / unstage selected file |
 | `c` / `C` | commit: editor prefilled with generated message / instant auto-commit |
+| `P` | git push |
 | `X` | discard changes to selected file (press twice to confirm) |
 | `/` (preview focused) | search inside the file/diff; `n` / `N` next/prev match |
 | `[` / `]` | previous / next diff hunk |

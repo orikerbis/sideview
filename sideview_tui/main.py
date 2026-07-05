@@ -27,6 +27,7 @@ Keys:
     c / C           git commit: c opens $EDITOR prefilled with a generated
                     message (Claude CLI if available, else a summary);
                     C commits immediately with the generated message
+    P               git push
     X               discard changes to the selected file (press twice)
     Tab             switch focus: tree <-> preview (j/k etc. scroll the
                     focused pane); Right arrow on a file also enters the
@@ -442,6 +443,9 @@ def _loop(stdscr, app):
                 app.message = "committed" if rc == 0 else "commit aborted"
             else:
                 app.message = "nothing staged (s to stage)"
+        elif ch == ord("P"):
+            rc = app.run_push(stdscr)
+            app.message = "pushed ✔" if rc == 0 else "push failed"
         elif ch == ord("F"):
             app.follow = not app.follow
             if app.follow and not app.changes:
