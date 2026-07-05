@@ -106,6 +106,7 @@ def main():
     os.chmod(os.path.join(bindir, "pbcopy"), 0o755)
     os.environ["PATH"] = bindir + ":" + os.environ["PATH"]
     os.environ["EDITOR"] = "/usr/bin/true"
+    os.environ["SIDEVIEW_STATE"] = os.path.join(auxdir, "state.json")
 
     # --- startup, icons, header ---
     pid, fd = spawn(repo)
@@ -188,13 +189,55 @@ def main():
     ok, _ = wait_for(fd, b"README.md")     # full tree is back
     check("esc exits changes view", ok)
 
+    # --- git actions: stage / unstage / commit guard ---
+    os.write(fd, b"gg")
+    os.write(fd, b"jj")                # select app.py (modified)
+    os.write(fd, b"s")
+    ok, _ = wait_for(fd, b"staged app.py")
+    check("stage from pane", ok)
+    os.write(fd, b"u")
+    ok, _ = wait_for(fd, b"unstaged app.py")
+    check("unstage from pane", ok)
+    os.write(fd, b"c")
+    ok, _ = wait_for(fd, b"nothing staged")
+    check("commit guard", ok)
+
+    # --- follow mode: F auto-jumps to the newest change ---
+    os.write(fd, b"F")
+    ok, _ = wait_for(fd, b"FOLLOW")
+    check("follow badge", ok)
+    time.sleep(0.5)
+    open(f"{repo}/README.md", "a").write("## follow me\n")
+    ok, _ = wait_for(fd, b"follow me")     # jumps there on the git tick
+    check("follow jumps to newest change", ok)
+    os.write(fd, b"F\x1b")                 # follow off, exit changes
+    wait_for(fd, b"notes.txt")
+
+    # --- preview search: / inside the focused preview, n cycles ---
+    os.write(fd, b"gg")
+    os.write(fd, b"j")                 # util.py
+    os.write(fd, b"\x1bOC")            # focus preview
+    os.write(fd, b"/return\r")         # search in file
+    ok, _ = wait_for(fd, b"match(es)")
+    check("preview search", ok)
+    os.write(fd, b"n")
+    out = drain(fd, 0.5)
+    check("search next no crash", b"Traceback" not in out)
+    os.write(fd, b"\x1bOD")            # back to tree
+
     os.write(fd, b"q")
     status, _ = wait_exit(pid, fd)
     check("q clean exit", status == 0)
 
-    # --- ctrl-c: clean exit, no traceback ---
+    # --- persistence: src/ expansion survives restart ---
     pid, fd = spawn(repo)
-    wait_for(fd, "⎇".encode())
+    ok, buf = wait_for(fd, "⎇".encode())
+    if b"util.py" not in buf:                     # may land a frame later
+        _, extra = wait_for(fd, b"util.py", timeout=3)
+        buf += extra
+    check("state persisted across restart", b"util.py" in buf)
+
+    # --- ctrl-c: clean exit, no traceback ---
     os.write(fd, b"\x03")
     status, out = wait_exit(pid, fd)
     check("ctrl-c exit code 0", status == 0)

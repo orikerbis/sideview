@@ -1,5 +1,6 @@
 """Application state: file tree, fuzzy search, preview, actions."""
 import curses
+import json
 import os
 import shutil
 import subprocess
@@ -15,6 +16,9 @@ NOISE_DIRS = {
 }
 PREVIEW_MAX_LINES = 800
 EDITOR = os.environ.get("EDITOR") or ("nvim" if shutil.which("nvim") else "vim")
+STATE_PATH = (os.environ.get("SIDEVIEW_STATE")
+              or os.path.expanduser("~/.config/sideview/state.json"))
+MAX_STATE_REPOS = 20
 
 
 class Node:
@@ -47,6 +51,55 @@ class App:
         self.preview_cache = None
         self.last_git = time.time()
         self.message = ""
+        self.follow = False          # F: auto-select the newest change
+        self.pending_discard = None  # rel awaiting X confirmation
+        self.psearch = ""            # search string inside the preview
+        self.psearch_input = False
+        self.load_state()
+
+    # ---------- persistence ----------
+    def load_state(self):
+        try:
+            state = json.load(open(STATE_PATH)).get(self.root, {})
+        except Exception:
+            return
+        self.expanded = set(state.get("expanded", []))
+        self.split = state.get("split", self.split)
+        self.show_hidden = state.get("show_hidden", self.show_hidden)
+
+    def save_state(self):
+        try:
+            all_state = json.load(open(STATE_PATH))
+        except Exception:
+            all_state = {}
+        all_state[self.root] = {
+            "expanded": sorted(self.expanded),
+            "split": self.split,
+            "show_hidden": self.show_hidden,
+            "saved_at": time.time(),
+        }
+        if len(all_state) > MAX_STATE_REPOS:
+            oldest = sorted(all_state,
+                            key=lambda r: all_state[r].get("saved_at", 0))
+            for r in oldest[:len(all_state) - MAX_STATE_REPOS]:
+                del all_state[r]
+        try:
+            os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+            json.dump(all_state, open(STATE_PATH, "w"), indent=1)
+        except OSError:
+            pass
+
+    def newest_change(self):
+        """rel of the changed file with the most recent mtime."""
+        best, best_t = None, -1.0
+        for rel in self.git.files:
+            try:
+                t = os.stat(os.path.join(self.root, rel)).st_mtime
+            except OSError:
+                t = 0.0
+            if t > best_t:
+                best, best_t = rel, t
+        return best
 
     # ---------- tree ----------
     def list_dir(self, path):
@@ -236,6 +289,44 @@ class App:
         self.repo_diff_rows()
         self.pscroll = self.repo_diff[1].get(node.rel, 0) if node else 0
 
+    def changes_line_at(self, idx):
+        """(rel, new-file line) for the pretty-diff row at idx."""
+        rows = self.repo_diff_rows()
+        if not rows:
+            return None, None
+        idx = min(idx, len(rows) - 1)
+        rel = None
+        for kind, _num, text, _lang in rows[:idx + 1]:
+            if kind == "file":
+                rel = text.rsplit("  ", 1)[0]
+        line = None
+        for kind, num, _text, _lang in rows[idx:]:
+            if kind == "file":
+                break
+            if num:
+                line = int(num)
+                break
+        return rel, line
+
+    # ---------- git actions ----------
+    def _after_git_change(self):
+        self.git.refresh()
+        self.preview_cache = None
+        self.repo_diff = None
+        self.build_visible()
+
+    def stage(self, node):
+        run(["git", "add", "--", node.rel], self.root)
+        self._after_git_change()
+
+    def unstage(self, node):
+        run(["git", "restore", "--staged", "--", node.rel], self.root)
+        self._after_git_change()
+
+    def discard(self, node):
+        run(["git", "checkout", "--", node.rel], self.root)
+        self._after_git_change()
+
     # ---------- actions ----------
     def selected(self):
         return self.visible[self.sel] if self.visible else None
@@ -260,15 +351,27 @@ class App:
                     self.sel = i
                     return
 
-    def edit(self, stdscr, node):
+    def edit(self, stdscr, node, line=None):
         if node is None or node.is_dir:
             return
+        cmd = [EDITOR] + (["+%d" % line] if line else []) + [node.path]
         curses.def_prog_mode()
         curses.endwin()
-        subprocess.call([EDITOR, node.path])
+        subprocess.call(cmd)
         curses.reset_prog_mode()
         stdscr.clear()
         stdscr.refresh()
         self.git.refresh()
         self.preview_cache = None
         self.repo_diff = None
+
+    def run_commit(self, stdscr):
+        """Interactive `git commit` (opens $EDITOR); returns exit code."""
+        curses.def_prog_mode()
+        curses.endwin()
+        rc = subprocess.call(["git", "commit"], cwd=self.root)
+        curses.reset_prog_mode()
+        stdscr.clear()
+        stdscr.refresh()
+        self._after_git_change()
+        return rc

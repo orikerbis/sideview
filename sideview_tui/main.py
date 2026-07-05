@@ -19,6 +19,11 @@ Keys:
                     files change on disk (e.g. by an AI agent); the file
                     list on the left jumps to that file's diff section
     [ / ]           previous / next hunk in a diff
+    F               follow mode: auto-jump to the newest changed file
+                    (leave on while an AI agent edits your repo)
+    s / u           git stage / unstage the selected file
+    c               git commit (opens $EDITOR)
+    X               discard changes to the selected file (press twice)
     Tab             switch focus: tree <-> preview (j/k etc. scroll the
                     focused pane); Right arrow on a file also enters the
                     preview, Left arrow returns to the tree
@@ -27,6 +32,7 @@ Keys:
     < / > or - / +  make the tree pane narrower / wider
     J/K             scroll preview
     y / Y           copy selected file's path / contents to clipboard
+    / (in preview)  search inside the file/diff; n / N next / prev match
     mouse           no capture: your terminal's native text selection and
                     copy work everywhere; the scroll wheel scrolls the
                     focused pane (terminals send arrow keys in TUIs)
@@ -41,7 +47,7 @@ import sys
 import time
 
 from . import theme
-from .app import App
+from .app import App, Node
 from .ui import draw, layout
 
 def clipboard(text):
@@ -53,6 +59,28 @@ def clipboard(text):
         return False
 
 
+def psearch_jump(app, node, direction, from_here=False):
+    if app.changes:
+        lines = [r[2] for r in app.repo_diff_rows()]
+    else:
+        lines = app.preview_lines(node) if node else []
+    q = app.psearch.lower()
+    hits = [i for i, l in enumerate(lines) if q in l.lower()]
+    if not hits:
+        app.message = "no matches for: " + app.psearch
+        return
+    if from_here:
+        nxt = [i for i in hits if i >= app.pscroll]
+        app.pscroll = nxt[0] if nxt else hits[0]
+    elif direction > 0:
+        nxt = [i for i in hits if i > app.pscroll]
+        app.pscroll = nxt[0] if nxt else hits[0]
+    else:
+        prev = [i for i in hits if i < app.pscroll]
+        app.pscroll = prev[-1] if prev else hits[-1]
+    app.message = "%d match(es)" % len(hits)
+
+
 def main(stdscr, root):
     theme.init_theme()
     curses.raw()  # deliver Ctrl-C as a key (handled as quit), not SIGINT
@@ -61,6 +89,13 @@ def main(stdscr, root):
     app = App(root)
     app.build_visible()
 
+    try:
+        _loop(stdscr, app)
+    finally:
+        app.save_state()
+
+
+def _loop(stdscr, app):
     while True:
         draw(stdscr, app)
         ch = stdscr.getch()
@@ -73,6 +108,25 @@ def main(stdscr, root):
                 app.preview_cache = None
                 app.repo_diff = None
                 app.build_visible()  # pick up created/deleted files
+                if app.follow and app.changes:
+                    newest = app.newest_change()
+                    for i, n in enumerate(app.visible):
+                        if n.rel == newest and i != app.sel:
+                            app.sel = i
+                            app.scroll_to_selected_change()
+                            break
+            continue
+
+        if app.psearch_input:
+            if ch == 27:
+                app.psearch_input, app.psearch = False, ""
+            elif ch in (10, 13, curses.KEY_ENTER):
+                app.psearch_input = False
+                psearch_jump(app, app.selected(), +1, from_here=True)
+            elif ch in (curses.KEY_BACKSPACE, 127, 8):
+                app.psearch = app.psearch[:-1]
+            elif 32 <= ch < 127:
+                app.psearch += chr(ch)
             continue
 
         if app.filter_input:
@@ -173,7 +227,17 @@ def main(stdscr, root):
             app.collapse_or_parent()
             app.build_visible()
         elif ch in (10, 13, curses.KEY_ENTER, ord("e")):
-            if node and node.is_dir and ch != ord("e"):
+            if app.focus == "preview" and app.changes:
+                rel, line = app.changes_line_at(app.pscroll)
+                if rel:
+                    path = os.path.join(app.root, rel)
+                    app.edit(stdscr, Node(path, rel, os.path.basename(rel),
+                                          False, 0), line)
+                    app.build_visible()
+            elif app.focus == "preview" and node and not node.is_dir:
+                app.edit(stdscr, node, app.pscroll + 1)
+                app.build_visible()
+            elif node and node.is_dir and ch != ord("e"):
                 app.toggle_dir(node)
                 app.build_visible()
             elif node and not node.is_dir:
@@ -182,8 +246,11 @@ def main(stdscr, root):
                     app.filter = ""
                 app.build_visible()
         elif ch == ord("/"):
-            app.filter_input, app.filter, app.sel = True, "", 0
-            app.build_visible()
+            if app.focus == "preview":
+                app.psearch_input, app.psearch = True, ""
+            else:
+                app.filter_input, app.filter, app.sel = True, "", 0
+                app.build_visible()
         elif ch == 27:                             # Esc: leave changes/filter
             if app.changes:
                 app.changes = app.diff_mode = False
@@ -200,6 +267,44 @@ def main(stdscr, root):
             app.split = max(0.20, round(app.split - 0.06, 2))
         elif ch in (ord(">"), ord("+"), ord("=")):  # tree wider
             app.split = min(0.80, round(app.split + 0.06, 2))
+        elif ch == ord("s"):
+            if node and not node.is_dir and app.git.code(node.rel):
+                app.stage(node)
+                app.message = "staged " + node.rel
+        elif ch == ord("u"):
+            if node and not node.is_dir:
+                app.unstage(node)
+                app.message = "unstaged " + node.rel
+        elif ch == ord("X"):
+            if node and not node.is_dir and app.git.code(node.rel):
+                if app.git.code(node.rel) == "??":
+                    app.message = "untracked — delete it yourself if you mean it"
+                elif app.pending_discard == node.rel:
+                    app.discard(node)
+                    app.pending_discard = None
+                    app.message = "discarded changes: " + node.rel
+                else:
+                    app.pending_discard = node.rel
+                    app.message = ("discard changes to %s? press X again"
+                                   % node.rel)
+        elif ch == ord("c"):
+            if app.git.counts()[0]:
+                rc = app.run_commit(stdscr)
+                app.message = "committed" if rc == 0 else "commit aborted"
+            else:
+                app.message = "nothing staged (s to stage)"
+        elif ch == ord("F"):
+            app.follow = not app.follow
+            if app.follow and not app.changes:
+                app.changes = True
+                app.diff_mode = True
+                app.sel = app.pscroll = 0
+                app.repo_diff = None
+                app.build_visible()
+            app.message = "follow on" if app.follow else "follow off"
+        elif ch in (ord("n"), ord("N")):
+            if app.psearch:
+                psearch_jump(app, node, +1 if ch == ord("n") else -1)
         elif ch == ord("y"):
             if node and clipboard(node.path):
                 app.message = "copied path: " + node.rel
@@ -227,6 +332,8 @@ def main(stdscr, root):
             app.message = "refreshed"
         elif ch == curses.KEY_RESIZE:
             pass
+        if ch != ord("X"):
+            app.pending_discard = None
         if app.changes and app.focus == "tree" and ch in (
                 ord("j"), ord("k"), curses.KEY_DOWN, curses.KEY_UP,
                 ord("g"), ord("G"), 4, 21, ord("D")):

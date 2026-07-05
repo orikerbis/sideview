@@ -1,5 +1,7 @@
 # sideview
 
+[![tests](https://github.com/orikerbis/sideview/actions/workflows/test.yml/badge.svg)](https://github.com/orikerbis/sideview/actions/workflows/test.yml)
+
 A zero-dependency, vim-style file navigator + git dashboard TUI, built to
 live in a side terminal pane next to your editor. Pure Python stdlib
 (curses) — no pip installs.
@@ -13,6 +15,16 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 - **Preview pane** with line numbers and lightweight **syntax highlighting**
   (python, shell, js/ts, json/tfstate, yaml, terraform, dockerfile, …),
   or the file's **git diff** (`d`); resize the split with `<` / `>`
+- **Agent follow mode** (`F`): auto-jumps to whichever file changed most
+  recently — leave it on while an AI agent works and the diff tracks it;
+  freshly-changed files pulse orange in the tree for 30s
+- **Git actions**: `s` stage, `u` unstage, `c` commit (opens your editor),
+  `X` discard (double-press confirm); `Enter` on a focused diff/preview
+  opens Neovim at that exact line
+- **Per-repo persistence**: expanded folders, split size and hidden-files
+  toggle are remembered between sessions (`~/.config/sideview/state.json`)
+- **In-preview search**: `/` while the preview is focused, `n`/`N` to jump
+  between matches (works on files and on the repo diff)
 - **Changes view** (`D`): a delta-style pretty diff of the whole repo —
   file header bars with +/− stats, clean hunk markers, line numbers,
   colored change gutters, syntax-highlighted added lines; untracked
@@ -37,7 +49,9 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 ## Install
 
 ```bash
-ln -sf "$PWD/sideview" ~/.local/bin/sideview   # or copy it anywhere on PATH
+pipx install git+https://github.com/orikerbis/sideview   # as a package
+# or, from a clone:
+ln -sf "$PWD/sideview" ~/.local/bin/sideview
 ```
 
 Requires Python 3.8+. For the default icon style, use a
@@ -66,6 +80,11 @@ or split your iTerm2/Terminal window and run it there.
 | `e` | edit file (even from search results) |
 | `/` | fuzzy find file (`↑`/`↓` browse results while typing, `Enter` open, `Esc` cancel) |
 | `D` | changes view: changed files + live diff preview (`Esc` exits) |
+| `F` | follow mode: auto-jump to the newest change (great with AI agents) |
+| `s` / `u` | git stage / unstage selected file |
+| `c` | git commit (opens $EDITOR; needs something staged) |
+| `X` | discard changes to selected file (press twice to confirm) |
+| `/` (preview focused) | search inside the file/diff; `n` / `N` next/prev match |
 | `[` / `]` | previous / next diff hunk |
 | `Tab` or `→` / `←` | focus tree ↔ preview (`→` on a file enters the preview; focused pane gets j/k, gg/G, Ctrl-d/u) |
 | `d` | toggle git-diff view in preview |

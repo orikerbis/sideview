@@ -1,6 +1,7 @@
 """All drawing: header bar, tree pane, preview pane, bottom bar."""
 import curses
 import os
+import time
 
 from . import icons, syntax, theme
 from .textutil import cells, fit
@@ -111,7 +112,8 @@ def draw(stdscr, app):
         s, u, t = app.git.counts()
         parts = [f"{n}{lbl}" for n, lbl in ((s, "●"), (u, "±"), (t, "?")) if n]
         info += "  " + (" ".join(parts) if parts else "✔")
-    badge = " CHANGES " if app.changes else ""
+    badge = (" FOLLOW " if app.follow else
+             " CHANGES " if app.changes else "")
     room = w - cells(info) - cells(badge) - 4
     if len(disp) > room:
         disp = "…" + disp[-(max(room, 8) - 1):]
@@ -145,6 +147,13 @@ def draw(stdscr, app):
         if n.is_dir and n.rel in app.git.dirty_dirs \
                 and n.rel not in app.expanded:
             mark = "•"
+        mark_attr = None
+        if mark and not n.is_dir:
+            try:  # pulse: file changed in the last 30s (e.g. by an agent)
+                if time.time() - os.stat(n.path).st_mtime < 30:
+                    mark_attr = curses.color_pair(theme.C_MSG)
+            except OSError:
+                pass
         y = 1 + row
         sel = idx == app.sel
         if sel:
@@ -162,7 +171,9 @@ def draw(stdscr, app):
             x += cells(ic)
         put(stdscr, y, x, name, attr, mark_x - 1 - x)
         if mark:
-            put(stdscr, y, mark_x, mark, attr | curses.A_BOLD)
+            put(stdscr, y, mark_x, mark,
+                (mark_attr if mark_attr and not sel else attr)
+                | curses.A_BOLD)
     draw_scrollbar(stdscr, tree_w - 1, 1, body_h, len(app.visible), app.scroll)
 
     if not app.visible:
@@ -251,11 +262,22 @@ def draw(stdscr, app):
             else:
                 put(stdscr, 1 + row, x, ln,
                     curses.color_pair(theme.C_TEXT), budget)
+            if app.psearch and app.psearch.lower() in ln.lower():
+                c = ln.lower().index(app.psearch.lower())
+                put(stdscr, 1 + row, x + c, ln[c:c + len(app.psearch)],
+                    curses.color_pair(theme.C_MSG) | curses.A_BOLD,
+                    max(0, budget - c))
         draw_scrollbar(stdscr, w - 1, 3, body_h - 2, total, app.pscroll)
 
     # ----- bottom bar -----
     put(stdscr, h - 1, 0, " " * w, curses.color_pair(theme.C_BAR))
-    if app.filter_input:
+    if app.psearch_input:
+        prompt = "in-file / " + app.psearch
+        put(stdscr, h - 1, 1, prompt,
+            curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
+        curses.curs_set(1)
+        stdscr.move(h - 1, min(w - 1, 1 + cells(prompt)))
+    elif app.filter_input:
         prompt = ("🔍" if icons.ICON_STYLE == "emoji" else "/") \
             + " " + app.filter
         put(stdscr, h - 1, 1, prompt,
@@ -272,7 +294,7 @@ def draw(stdscr, app):
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
         elif app.changes:
             put(stdscr, h - 1, 1,
-                "CHANGES  j/k file  [ ] hunks  ⇥ focus  ⏎ edit  Esc back",
+                "CHANGES  j/k file  [ ] hunks  s/u stage  c commit  Esc back",
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 12)
         else:
             put(stdscr, h - 1, 1,

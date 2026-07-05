@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sideview-tui"
+version = "0.3.0"
+description = "vim-style file navigator + git dashboard TUI for a side terminal pane"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Ori Kerbis" }]
+keywords = ["tui", "curses", "git", "file-manager", "neovim"]
+
+[project.urls]
+Homepage = "https://github.com/orikerbis/sideview"
+
+[project.scripts]
+sideview = "sideview_tui.main:cli"
+
+[tool.setuptools]
+packages = ["sideview_tui"]
