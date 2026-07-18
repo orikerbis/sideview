@@ -107,7 +107,11 @@ def main():
         f.write("#!/bin/sh\ncat > %s\n" % clipfile)
     os.chmod(os.path.join(bindir, "pbcopy"), 0o755)
     os.environ["PATH"] = bindir + ":" + os.environ["PATH"]
-    os.environ["EDITOR"] = "/usr/bin/true"
+    edlog = os.path.join(auxdir, "editor.log")
+    with open(os.path.join(bindir, "fakeed"), "w") as f:
+        f.write("#!/bin/sh\necho \"$@\" >> %s\n" % edlog)
+    os.chmod(os.path.join(bindir, "fakeed"), 0o755)
+    os.environ["EDITOR"] = os.path.join(bindir, "fakeed")
     os.environ["SIDEVIEW_STATE"] = os.path.join(auxdir, "state.json")
     os.environ["SIDEVIEW_COMMIT_AI"] = "off"   # deterministic commit msgs
     os.environ["SIDEVIEW_ICONS"] = "nerd"      # CI runners have no fonts
@@ -145,6 +149,19 @@ def main():
     check("y copies path", ok)
     clip = open(clipfile).read() if os.path.exists(clipfile) else ""
     check("clipboard has file path", clip.endswith("src/util.py"))
+
+    # --- Enter must not open files; e must ---
+    os.write(fd, b"\r")
+    out = drain(fd, 0.8)
+    check("enter does not edit file",
+          not os.path.exists(edlog) and b"Traceback" not in out)
+    os.write(fd, b"e")
+    end = time.time() + 5
+    while time.time() < end and not os.path.exists(edlog):
+        drain(fd, 0.2)
+    logged = open(edlog).read() if os.path.exists(edlog) else ""
+    check("e opens editor", "src/util.py" in logged)
+    wait_for(fd, b"util.py")           # TUI resumed and redrew
 
     # --- mouse (SGR): drag-select lines in the preview, copy on release ---
     def sgr(b, x, y, release=False):

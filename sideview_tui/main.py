@@ -7,15 +7,15 @@ Usage:
 
 Environment:
     SIDEVIEW_ICONS=nerd|emoji|off   icon style (default nerd)
-    EDITOR                          editor for Enter/e (default nvim, else vim)
+    EDITOR                          editor for e (default nvim, else vim)
 
 Keys:
     j/k or arrows   move           gg / G       top / bottom
     h               collapse / up  l or Enter   expand dir
-    Enter or e      edit file in $EDITOR
+    e               edit file in $EDITOR
     Ctrl-d/Ctrl-u   half page down/up
     /               fuzzy find file (type to filter, Up/Down to
-                    browse results, Enter open, Esc cancel)
+                    browse results, e open, Esc cancel)
     D               changes view: one repo-wide diff of everything that
                     changed (untracked files included), updating live as
                     files change on disk (e.g. by an AI agent); the file
@@ -415,7 +415,11 @@ def _loop(stdscr, app):
         elif ch in (ord("h"), curses.KEY_LEFT):
             app.collapse_or_parent()
             app.build_visible()
-        elif ch in (10, 13, curses.KEY_ENTER, ord("e")):
+        elif ch in (10, 13, curses.KEY_ENTER):
+            if node and node.is_dir:
+                app.toggle_dir(node)
+                app.build_visible()
+        elif ch == ord("e"):
             if app.focus == "preview" and app.changes:
                 rel, line = app.changes_line_at(app.pscroll)
                 if rel:
@@ -425,9 +429,6 @@ def _loop(stdscr, app):
                     app.build_visible()
             elif app.focus == "preview" and node and not node.is_dir:
                 app.edit(stdscr, node, app.pscroll + 1)
-                app.build_visible()
-            elif node and node.is_dir and ch != ord("e"):
-                app.toggle_dir(node)
                 app.build_visible()
             elif node and not node.is_dir:
                 app.edit(stdscr, node)
