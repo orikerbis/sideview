@@ -77,6 +77,7 @@ class App:
         self.last_click_idx = -1
         self.follow = False          # F: auto-select the newest change
         self.pending_discard = None  # rel awaiting X confirmation
+        self.pending_delete = None   # rel awaiting x confirmation
         self.psearch = ""            # search string inside the preview
         self.psearch_input = False
         self.load_state()
@@ -352,6 +353,16 @@ class App:
         run(["git", "checkout", "--", node.rel], self.root)
         self._after_git_change()
 
+    def delete_file(self, node):
+        """Remove the file from disk. Returns an error string or None."""
+        try:
+            os.remove(node.path)
+        except OSError as e:
+            return str(e)
+        self._after_git_change()
+        self.sel = min(self.sel, max(0, len(self.visible) - 1))
+        return None
+
     # ---------- actions ----------
     def selected(self):
         return self.visible[self.sel] if self.visible else None
@@ -402,14 +413,17 @@ class App:
         summary = "; ".join(
             v + " " + ", ".join(fs[:3]) + ("…" if len(fs) > 3 else "")
             for v, fs in groups.items()) or "update"
+        summary = ("feat: " if "add" in groups else "chore: ") + summary
         if (os.environ.get("SIDEVIEW_COMMIT_AI", "on") != "off"
                 and shutil.which("claude")):
             diff = run(["git", "diff", "--staged"], self.root) or ""
             try:
                 r = subprocess.run(
                     ["claude", "-p", "--model", "haiku",
-                     "Write a single-line git commit message (max 70 chars,"
-                     " imperative mood) for this diff. Reply with only the"
+                     "Write a single-line git commit message in Conventional"
+                     " Commits format '<type>: <description>' with type one"
+                     " of feat|fix|chore|docs|refactor|test, max 70 chars,"
+                     " imperative mood, for this diff. Reply with only the"
                      " message, nothing else."],
                     input=diff[:60000], capture_output=True, text=True,
                     timeout=45)
@@ -430,13 +444,26 @@ class App:
         return rc
 
     def run_commit(self, stdscr, auto=False):
-        """git commit with a generated message: `auto` commits directly,
-        otherwise $EDITOR opens prefilled for review. Returns exit code."""
+        """git commit with a generated message: `auto` commits in-TUI with
+        output captured (and sets self.message), otherwise $EDITOR opens
+        prefilled for review. Returns exit code."""
+        if auto:
+            msg = self.commit_suggestion()
+            r = subprocess.run(["git", "commit", "-m", msg], cwd=self.root,
+                               capture_output=True, text=True)
+            self._after_git_change()
+            if r.returncode == 0:
+                self.message = ("committed ✔ " + msg)[:100]
+            else:
+                err = ((r.stderr or r.stdout or "").strip().splitlines()
+                       or ["unknown error"])[0]
+                self.message = "commit failed: " + err
+            return r.returncode
         suspend_tui()
         print("sideview: generating commit message…", flush=True)
         msg = self.commit_suggestion()
-        cmd = ["git", "commit", "-m", msg] + ([] if auto else ["-e"])
-        rc = subprocess.call(cmd, cwd=self.root)
+        rc = subprocess.call(["git", "commit", "-m", msg, "-e"],
+                             cwd=self.root)
         resume_tui(stdscr)
         self._after_git_change()
         return rc

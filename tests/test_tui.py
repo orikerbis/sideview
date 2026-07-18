@@ -107,7 +107,15 @@ def main():
         f.write("#!/bin/sh\ncat > %s\n" % clipfile)
     os.chmod(os.path.join(bindir, "pbcopy"), 0o755)
     os.environ["PATH"] = bindir + ":" + os.environ["PATH"]
-    os.environ["EDITOR"] = "/usr/bin/true"
+    edlog = os.path.join(auxdir, "editor.log")
+    with open(os.path.join(bindir, "fakeed"), "w") as f:
+        f.write("#!/bin/sh\necho \"$@\" >> %s\n" % edlog)
+    os.chmod(os.path.join(bindir, "fakeed"), 0o755)
+    # first exec of a fresh script can take seconds (macOS Gatekeeper
+    # scan); warm it up so "no editor ran" checks can trust a short wait
+    subprocess.run([os.path.join(bindir, "fakeed"), "warmup"], timeout=30)
+    os.remove(edlog)
+    os.environ["EDITOR"] = os.path.join(bindir, "fakeed")
     os.environ["SIDEVIEW_STATE"] = os.path.join(auxdir, "state.json")
     os.environ["SIDEVIEW_COMMIT_AI"] = "off"   # deterministic commit msgs
     os.environ["SIDEVIEW_ICONS"] = "nerd"      # CI runners have no fonts
@@ -145,6 +153,22 @@ def main():
     check("y copies path", ok)
     clip = open(clipfile).read() if os.path.exists(clipfile) else ""
     check("clipboard has file path", clip.endswith("src/util.py"))
+
+    # --- Enter must not open files; e must ---
+    os.write(fd, b"\r")
+    # an editor launch suspends the TUI, which always emits the mouse-off
+    # sequence first — a synchronous signal, unlike waiting for edlog
+    out = drain(fd, 2.0)
+    check("enter does not edit file",
+          b"\x1b[?1002l" not in out and not os.path.exists(edlog)
+          and b"Traceback" not in out)
+    os.write(fd, b"e")
+    end = time.time() + 10
+    while time.time() < end and not os.path.exists(edlog):
+        drain(fd, 0.2)
+    logged = open(edlog).read() if os.path.exists(edlog) else ""
+    check("e opens editor", "src/util.py" in logged)
+    wait_for(fd, b"util.py")           # TUI resumed and redrew
 
     # --- mouse (SGR): drag-select lines in the preview, copy on release ---
     def sgr(b, x, y, release=False):
@@ -245,14 +269,31 @@ def main():
     os.write(fd, b"C")                 # auto-commit with generated message
     ok, buf = wait_for(fd, b"committed")
     check("auto-commit works", ok)
-    # mouse tracking must be OFF while suspended for the commit
-    check("mouse disabled during commit", b"\x1b[?1002l" in buf)
+    # C must stay in the TUI: no suspend, so mouse tracking never turns off
+    check("no TUI suspend on C", b"\x1b[?1002l" not in buf)
     log = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s"],
                          capture_output=True, text=True).stdout.strip()
-    check("auto commit message generated", log == "update app.py")
+    check("auto commit message generated", log == "chore: update app.py")
     os.write(fd, b"P")                 # no remote configured in fixture
     ok, _ = wait_for(fd, b"push failed")
     check("push reports failure without remote", ok)
+
+    # --- conventional prefix: added file -> feat: ---
+    open(f"{repo}/newfile.py", "w").write("x = 1\n")
+    subprocess.run(["git", "-C", repo, "add", "newfile.py"],
+                   capture_output=True)
+    r = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]);"
+         "from sideview_tui.app import App;"
+         "print(App(sys.argv[2]).commit_suggestion())",
+         ROOT, repo],
+        capture_output=True, text=True)
+    check("feat prefix for added file",
+          r.stdout.strip().startswith("feat: add newfile.py"))
+    subprocess.run(["git", "-C", repo, "-c", "user.email=t@t",
+                    "-c", "user.name=t", "commit", "-m", "chore: tmp"],
+                   capture_output=True)   # leave nothing staged behind
 
     # --- follow mode: F auto-jumps to the newest change ---
     os.write(fd, b"F")
@@ -276,6 +317,36 @@ def main():
     out = drain(fd, 0.5)
     check("search next no crash", b"Traceback" not in out)
     os.write(fd, b"\x1bOD")            # back to tree
+
+    # --- x deletes a file (press twice); refuses directories ---
+    os.write(fd, b"gg")                    # select src/ (a directory)
+    drain(fd, 0.3)
+    os.write(fd, b"x")
+    ok, _ = wait_for(fd, b"can't delete directories")
+    check("x refuses directories", ok)
+    open(f"{repo}/junk.txt", "w").write("bye\n")
+    os.write(fd, b"r")                     # pick up the new file
+    ok, _ = wait_for(fd, b"junk.txt")
+    check("junk.txt appears", ok)
+    os.write(fd, b"/junk\r")               # select it via fuzzy find
+    wait_for(fd, b"junk.txt")
+    os.write(fd, b"x")
+    ok, _ = wait_for(fd, b"press x again")
+    check("delete asks to confirm", ok)
+    os.write(fd, b"k")                     # any other key cancels
+    drain(fd, 0.4)
+    check("cancel keeps file", os.path.exists(f"{repo}/junk.txt"))
+    os.write(fd, b"x")
+    wait_for(fd, b"press x again")
+    os.write(fd, b"x")                     # confirm
+    # NB: can't wait for the "deleted junk.txt" message — it shares the
+    # "delete" prefix with the confirm prompt, so ncurses redraws only the
+    # tail. The emptied filtered tree is the deterministic signal.
+    ok, _ = wait_for(fd, b"(no matches)")
+    check("x x deletes file", ok)
+    check("file gone from disk", not os.path.exists(f"{repo}/junk.txt"))
+    os.write(fd, b"\x1b")                  # clear the filter
+    wait_for(fd, b"notes.txt")
 
     os.write(fd, b"q")
     status, _ = wait_exit(pid, fd)

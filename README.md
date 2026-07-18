@@ -21,7 +21,7 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 - **Git actions**: `s` stage, `u` unstage, `X` discard (double-press
   confirm); `c` commit with your editor prefilled by a **generated commit
   message** (Claude CLI if installed, heuristic otherwise), `C` commits
-  instantly with the generated message; `Enter` on a focused diff/preview
+  instantly with the generated message without leaving the TUI; `e` on a focused diff/preview
   opens Neovim at that exact line
 - **Per-repo persistence**: expanded folders, split size and hidden-files
   toggle are remembered between sessions (`~/.config/sideview/state.json`)
@@ -36,7 +36,7 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 - **Pane focus** (`Tab`): move focus to the preview so `j/k`, `gg/G`,
   `Ctrl-d/u` scroll the file instead of the tree
 - **Fuzzy file finder** (`/`) — subsequence matching like an IDE quick-open
-- **Edit in Neovim/vim**: `Enter` suspends the TUI and opens the file in
+- **Edit in Neovim/vim**: `e` suspends the TUI and opens the file in
   `$EDITOR` (defaults to `nvim` when installed, else `vim`)
 - **Dark 256-color theme** matching **tokyonight-night** (the LazyVim
   default) with graceful 8-color fallback
@@ -88,15 +88,16 @@ or split your iTerm2/Terminal window and run it there.
 | `gg` / `G` | top / bottom |
 | `Ctrl-d` / `Ctrl-u` | half page down / up |
 | `l` / `h` | expand dir / collapse (or jump to parent) |
-| `Enter` | open dir, or edit file in `$EDITOR` |
+| `Enter` | expand / collapse dir |
 | `e` | edit file (even from search results) |
-| `/` | fuzzy find file (`↑`/`↓` browse results while typing, `Enter` open, `Esc` cancel) |
+| `/` | fuzzy find file (`↑`/`↓` browse results while typing, `e` open, `Esc` cancel) |
 | `D` | changes view: changed files + live diff preview (`Esc` exits) |
 | `F` | follow mode: auto-jump to the newest change (great with AI agents) |
 | `s` / `u` | git stage / unstage selected file |
 | `c` / `C` | commit: editor prefilled with generated message / instant auto-commit |
 | `P` | git push |
 | `X` | discard changes to selected file (press twice to confirm) |
+| `x` | delete selected file from disk (press twice to confirm) |
 | `/` (preview focused) | search inside the file/diff; `n` / `N` next/prev match |
 | `[` / `]` | previous / next diff hunk |
 | `Tab` or `→` / `←` | focus tree ↔ preview (`→` on a file enters the preview; focused pane gets j/k, gg/G, Ctrl-d/u) |

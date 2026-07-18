@@ -7,15 +7,15 @@ Usage:
 
 Environment:
     SIDEVIEW_ICONS=nerd|emoji|off   icon style (default nerd)
-    EDITOR                          editor for Enter/e (default nvim, else vim)
+    EDITOR                          editor for e (default nvim, else vim)
 
 Keys:
     j/k or arrows   move           gg / G       top / bottom
     h               collapse / up  l or Enter   expand dir
-    Enter or e      edit file in $EDITOR
+    e               edit file in $EDITOR
     Ctrl-d/Ctrl-u   half page down/up
     /               fuzzy find file (type to filter, Up/Down to
-                    browse results, Enter open, Esc cancel)
+                    browse results, e open, Esc cancel)
     D               changes view: one repo-wide diff of everything that
                     changed (untracked files included), updating live as
                     files change on disk (e.g. by an AI agent); the file
@@ -29,6 +29,7 @@ Keys:
                     C commits immediately with the generated message
     P               git push
     X               discard changes to the selected file (press twice)
+    x               delete the selected file from disk (press twice)
     Tab             switch focus: tree <-> preview (j/k etc. scroll the
                     focused pane); Right arrow on a file also enters the
                     preview, Left arrow returns to the tree
@@ -415,7 +416,11 @@ def _loop(stdscr, app):
         elif ch in (ord("h"), curses.KEY_LEFT):
             app.collapse_or_parent()
             app.build_visible()
-        elif ch in (10, 13, curses.KEY_ENTER, ord("e")):
+        elif ch in (10, 13, curses.KEY_ENTER):
+            if node and node.is_dir:
+                app.toggle_dir(node)
+                app.build_visible()
+        elif ch == ord("e"):
             if app.focus == "preview" and app.changes:
                 rel, line = app.changes_line_at(app.pscroll)
                 if rel:
@@ -425,9 +430,6 @@ def _loop(stdscr, app):
                     app.build_visible()
             elif app.focus == "preview" and node and not node.is_dir:
                 app.edit(stdscr, node, app.pscroll + 1)
-                app.build_visible()
-            elif node and node.is_dir and ch != ord("e"):
-                app.toggle_dir(node)
                 app.build_visible()
             elif node and not node.is_dir:
                 app.edit(stdscr, node)
@@ -476,10 +478,30 @@ def _loop(stdscr, app):
                     app.pending_discard = node.rel
                     app.message = ("discard changes to %s? press X again"
                                    % node.rel)
+        elif ch == ord("x"):
+            if node and node.is_dir:
+                app.message = "can't delete directories"
+            elif node:
+                if app.pending_delete == node.rel:
+                    err = app.delete_file(node)
+                    app.pending_delete = None
+                    if err is None:
+                        app.message = "deleted %s" % node.rel
+                    else:
+                        app.message = "delete failed: %s" % err
+                else:
+                    app.pending_delete = node.rel
+                    app.message = "delete %s? press x again" % node.rel
         elif ch in (ord("c"), ord("C")):
             if app.git.counts()[0]:
-                rc = app.run_commit(stdscr, auto=(ch == ord("C")))
-                app.message = "committed" if rc == 0 else "commit aborted"
+                if ch == ord("C"):
+                    app.message = "generating commit message…"
+                    draw(stdscr, app)   # show progress before blocking
+                    app.run_commit(stdscr, auto=True)  # sets app.message
+                else:
+                    rc = app.run_commit(stdscr)
+                    app.message = ("committed" if rc == 0
+                                   else "commit aborted")
             else:
                 app.message = "nothing staged (s to stage)"
         elif ch == ord("P"):
@@ -526,6 +548,8 @@ def _loop(stdscr, app):
             pass
         if ch != ord("X"):
             app.pending_discard = None
+        if ch != ord("x"):
+            app.pending_delete = None
         if app.changes and app.focus == "tree" and ch in (
                 ord("j"), ord("k"), curses.KEY_DOWN, curses.KEY_UP,
                 ord("g"), ord("G"), 4, 21, ord("D")):
