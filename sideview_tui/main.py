@@ -494,8 +494,14 @@ def _loop(stdscr, app):
                     app.message = "delete %s? press x again" % node.rel
         elif ch in (ord("c"), ord("C")):
             if app.git.counts()[0]:
-                rc = app.run_commit(stdscr, auto=(ch == ord("C")))
-                app.message = "committed" if rc == 0 else "commit aborted"
+                if ch == ord("C"):
+                    app.message = "generating commit message…"
+                    draw(stdscr, app)   # show progress before blocking
+                    app.run_commit(stdscr, auto=True)  # sets app.message
+                else:
+                    rc = app.run_commit(stdscr)
+                    app.message = ("committed" if rc == 0
+                                   else "commit aborted")
             else:
                 app.message = "nothing staged (s to stage)"
         elif ch == ord("P"):

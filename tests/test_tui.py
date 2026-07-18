@@ -269,8 +269,8 @@ def main():
     os.write(fd, b"C")                 # auto-commit with generated message
     ok, buf = wait_for(fd, b"committed")
     check("auto-commit works", ok)
-    # mouse tracking must be OFF while suspended for the commit
-    check("mouse disabled during commit", b"\x1b[?1002l" in buf)
+    # C must stay in the TUI: no suspend, so mouse tracking never turns off
+    check("no TUI suspend on C", b"\x1b[?1002l" not in buf)
     log = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s"],
                          capture_output=True, text=True).stdout.strip()
     check("auto commit message generated", log == "chore: update app.py")

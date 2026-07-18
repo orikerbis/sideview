@@ -21,7 +21,7 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 - **Git actions**: `s` stage, `u` unstage, `X` discard (double-press
   confirm); `c` commit with your editor prefilled by a **generated commit
   message** (Claude CLI if installed, heuristic otherwise), `C` commits
-  instantly with the generated message; `e` on a focused diff/preview
+  instantly with the generated message without leaving the TUI; `e` on a focused diff/preview
   opens Neovim at that exact line
 - **Per-repo persistence**: expanded folders, split size and hidden-files
   toggle are remembered between sessions (`~/.config/sideview/state.json`)

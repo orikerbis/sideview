@@ -444,13 +444,26 @@ class App:
         return rc
 
     def run_commit(self, stdscr, auto=False):
-        """git commit with a generated message: `auto` commits directly,
-        otherwise $EDITOR opens prefilled for review. Returns exit code."""
+        """git commit with a generated message: `auto` commits in-TUI with
+        output captured (and sets self.message), otherwise $EDITOR opens
+        prefilled for review. Returns exit code."""
+        if auto:
+            msg = self.commit_suggestion()
+            r = subprocess.run(["git", "commit", "-m", msg], cwd=self.root,
+                               capture_output=True, text=True)
+            self._after_git_change()
+            if r.returncode == 0:
+                self.message = ("committed ✔ " + msg)[:100]
+            else:
+                err = ((r.stderr or r.stdout or "").strip().splitlines()
+                       or ["unknown error"])[0]
+                self.message = "commit failed: " + err
+            return r.returncode
         suspend_tui()
         print("sideview: generating commit message…", flush=True)
         msg = self.commit_suggestion()
-        cmd = ["git", "commit", "-m", msg] + ([] if auto else ["-e"])
-        rc = subprocess.call(cmd, cwd=self.root)
+        rc = subprocess.call(["git", "commit", "-m", msg, "-e"],
+                             cwd=self.root)
         resume_tui(stdscr)
         self._after_git_change()
         return rc
