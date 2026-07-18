@@ -413,14 +413,17 @@ class App:
         summary = "; ".join(
             v + " " + ", ".join(fs[:3]) + ("…" if len(fs) > 3 else "")
             for v, fs in groups.items()) or "update"
+        summary = ("feat: " if "add" in groups else "chore: ") + summary
         if (os.environ.get("SIDEVIEW_COMMIT_AI", "on") != "off"
                 and shutil.which("claude")):
             diff = run(["git", "diff", "--staged"], self.root) or ""
             try:
                 r = subprocess.run(
                     ["claude", "-p", "--model", "haiku",
-                     "Write a single-line git commit message (max 70 chars,"
-                     " imperative mood) for this diff. Reply with only the"
+                     "Write a single-line git commit message in Conventional"
+                     " Commits format '<type>: <description>' with type one"
+                     " of feat|fix|chore|docs|refactor|test, max 70 chars,"
+                     " imperative mood, for this diff. Reply with only the"
                      " message, nothing else."],
                     input=diff[:60000], capture_output=True, text=True,
                     timeout=45)

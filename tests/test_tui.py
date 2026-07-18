@@ -273,10 +273,27 @@ def main():
     check("mouse disabled during commit", b"\x1b[?1002l" in buf)
     log = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s"],
                          capture_output=True, text=True).stdout.strip()
-    check("auto commit message generated", log == "update app.py")
+    check("auto commit message generated", log == "chore: update app.py")
     os.write(fd, b"P")                 # no remote configured in fixture
     ok, _ = wait_for(fd, b"push failed")
     check("push reports failure without remote", ok)
+
+    # --- conventional prefix: added file -> feat: ---
+    open(f"{repo}/newfile.py", "w").write("x = 1\n")
+    subprocess.run(["git", "-C", repo, "add", "newfile.py"],
+                   capture_output=True)
+    r = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]);"
+         "from sideview_tui.app import App;"
+         "print(App(sys.argv[2]).commit_suggestion())",
+         ROOT, repo],
+        capture_output=True, text=True)
+    check("feat prefix for added file",
+          r.stdout.strip().startswith("feat: add newfile.py"))
+    subprocess.run(["git", "-C", repo, "-c", "user.email=t@t",
+                    "-c", "user.name=t", "commit", "-m", "chore: tmp"],
+                   capture_output=True)   # leave nothing staged behind
 
     # --- follow mode: F auto-jumps to the newest change ---
     os.write(fd, b"F")
