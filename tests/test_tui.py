@@ -111,6 +111,10 @@ def main():
     with open(os.path.join(bindir, "fakeed"), "w") as f:
         f.write("#!/bin/sh\necho \"$@\" >> %s\n" % edlog)
     os.chmod(os.path.join(bindir, "fakeed"), 0o755)
+    # first exec of a fresh script can take seconds (macOS Gatekeeper
+    # scan); warm it up so "no editor ran" checks can trust a short wait
+    subprocess.run([os.path.join(bindir, "fakeed"), "warmup"], timeout=30)
+    os.remove(edlog)
     os.environ["EDITOR"] = os.path.join(bindir, "fakeed")
     os.environ["SIDEVIEW_STATE"] = os.path.join(auxdir, "state.json")
     os.environ["SIDEVIEW_COMMIT_AI"] = "off"   # deterministic commit msgs
@@ -152,11 +156,14 @@ def main():
 
     # --- Enter must not open files; e must ---
     os.write(fd, b"\r")
-    out = drain(fd, 0.8)
+    # an editor launch suspends the TUI, which always emits the mouse-off
+    # sequence first — a synchronous signal, unlike waiting for edlog
+    out = drain(fd, 2.0)
     check("enter does not edit file",
-          not os.path.exists(edlog) and b"Traceback" not in out)
+          b"\x1b[?1002l" not in out and not os.path.exists(edlog)
+          and b"Traceback" not in out)
     os.write(fd, b"e")
-    end = time.time() + 5
+    end = time.time() + 10
     while time.time() < end and not os.path.exists(edlog):
         drain(fd, 0.2)
     logged = open(edlog).read() if os.path.exists(edlog) else ""
