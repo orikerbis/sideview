@@ -77,6 +77,7 @@ class App:
         self.last_click_idx = -1
         self.follow = False          # F: auto-select the newest change
         self.pending_discard = None  # rel awaiting X confirmation
+        self.pending_delete = None   # rel awaiting x confirmation
         self.psearch = ""            # search string inside the preview
         self.psearch_input = False
         self.load_state()
@@ -351,6 +352,16 @@ class App:
     def discard(self, node):
         run(["git", "checkout", "--", node.rel], self.root)
         self._after_git_change()
+
+    def delete_file(self, node):
+        """Remove the file from disk. Returns an error string or None."""
+        try:
+            os.remove(node.path)
+        except OSError as e:
+            return str(e)
+        self._after_git_change()
+        self.sel = min(self.sel, max(0, len(self.visible) - 1))
+        return None
 
     # ---------- actions ----------
     def selected(self):

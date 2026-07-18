@@ -29,6 +29,7 @@ Keys:
                     C commits immediately with the generated message
     P               git push
     X               discard changes to the selected file (press twice)
+    x               delete the selected file from disk (press twice)
     Tab             switch focus: tree <-> preview (j/k etc. scroll the
                     focused pane); Right arrow on a file also enters the
                     preview, Left arrow returns to the tree
@@ -477,6 +478,20 @@ def _loop(stdscr, app):
                     app.pending_discard = node.rel
                     app.message = ("discard changes to %s? press X again"
                                    % node.rel)
+        elif ch == ord("x"):
+            if node and node.is_dir:
+                app.message = "can't delete directories"
+            elif node:
+                if app.pending_delete == node.rel:
+                    err = app.delete_file(node)
+                    app.pending_delete = None
+                    if err is None:
+                        app.message = "deleted %s" % node.rel
+                    else:
+                        app.message = "delete failed: %s" % err
+                else:
+                    app.pending_delete = node.rel
+                    app.message = "delete %s? press x again" % node.rel
         elif ch in (ord("c"), ord("C")):
             if app.git.counts()[0]:
                 rc = app.run_commit(stdscr, auto=(ch == ord("C")))
@@ -527,6 +542,8 @@ def _loop(stdscr, app):
             pass
         if ch != ord("X"):
             app.pending_discard = None
+        if ch != ord("x"):
+            app.pending_delete = None
         if app.changes and app.focus == "tree" and ch in (
                 ord("j"), ord("k"), curses.KEY_DOWN, curses.KEY_UP,
                 ord("g"), ord("G"), 4, 21, ord("D")):

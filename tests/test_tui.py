@@ -301,6 +301,36 @@ def main():
     check("search next no crash", b"Traceback" not in out)
     os.write(fd, b"\x1bOD")            # back to tree
 
+    # --- x deletes a file (press twice); refuses directories ---
+    os.write(fd, b"gg")                    # select src/ (a directory)
+    drain(fd, 0.3)
+    os.write(fd, b"x")
+    ok, _ = wait_for(fd, b"can't delete directories")
+    check("x refuses directories", ok)
+    open(f"{repo}/junk.txt", "w").write("bye\n")
+    os.write(fd, b"r")                     # pick up the new file
+    ok, _ = wait_for(fd, b"junk.txt")
+    check("junk.txt appears", ok)
+    os.write(fd, b"/junk\r")               # select it via fuzzy find
+    wait_for(fd, b"junk.txt")
+    os.write(fd, b"x")
+    ok, _ = wait_for(fd, b"press x again")
+    check("delete asks to confirm", ok)
+    os.write(fd, b"k")                     # any other key cancels
+    drain(fd, 0.4)
+    check("cancel keeps file", os.path.exists(f"{repo}/junk.txt"))
+    os.write(fd, b"x")
+    wait_for(fd, b"press x again")
+    os.write(fd, b"x")                     # confirm
+    # NB: can't wait for the "deleted junk.txt" message — it shares the
+    # "delete" prefix with the confirm prompt, so ncurses redraws only the
+    # tail. The emptied filtered tree is the deterministic signal.
+    ok, _ = wait_for(fd, b"(no matches)")
+    check("x x deletes file", ok)
+    check("file gone from disk", not os.path.exists(f"{repo}/junk.txt"))
+    os.write(fd, b"\x1b")                  # clear the filter
+    wait_for(fd, b"notes.txt")
+
     os.write(fd, b"q")
     status, _ = wait_exit(pid, fd)
     check("q clean exit", status == 0)

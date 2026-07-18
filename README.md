@@ -97,6 +97,7 @@ or split your iTerm2/Terminal window and run it there.
 | `c` / `C` | commit: editor prefilled with generated message / instant auto-commit |
 | `P` | git push |
 | `X` | discard changes to selected file (press twice to confirm) |
+| `x` | delete selected file from disk (press twice to confirm) |
 | `/` (preview focused) | search inside the file/diff; `n` / `N` next/prev match |
 | `[` / `]` | previous / next diff hunk |
 | `Tab` or `→` / `←` | focus tree ↔ preview (`→` on a file enters the preview; focused pane gets j/k, gg/G, Ctrl-d/u) |
