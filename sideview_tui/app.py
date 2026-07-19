@@ -80,6 +80,8 @@ class App:
         self.pending_delete = None   # rel awaiting x confirmation
         self.psearch = ""            # search string inside the preview
         self.psearch_input = False
+        self.help_on = False         # ?: full-screen key reference
+        self.help_scroll = 0
         self.load_state()
 
     # ---------- persistence ----------
@@ -446,9 +448,11 @@ class App:
     def run_commit(self, stdscr, auto=False):
         """git commit with a generated message: `auto` commits in-TUI with
         output captured (and sets self.message), otherwise $EDITOR opens
-        prefilled for review. Returns exit code."""
+        prefilled for review. Message generation always happens in-TUI so
+        the terminal is only taken over for the editor itself.
+        Returns exit code."""
+        msg = self.commit_suggestion()
         if auto:
-            msg = self.commit_suggestion()
             r = subprocess.run(["git", "commit", "-m", msg], cwd=self.root,
                                capture_output=True, text=True)
             self._after_git_change()
@@ -460,8 +464,6 @@ class App:
                 self.message = "commit failed: " + err
             return r.returncode
         suspend_tui()
-        print("sideview: generating commit message…", flush=True)
-        msg = self.commit_suggestion()
         rc = subprocess.call(["git", "commit", "-m", msg, "-e"],
                              cwd=self.root)
         resume_tui(stdscr)

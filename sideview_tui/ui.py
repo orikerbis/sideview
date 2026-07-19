@@ -96,7 +96,73 @@ def draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h):
             put(stdscr, y, x, text, attr, budget)
 
 
+HELP = [
+    ("j / k", "move selection (arrow keys work too)"),
+    ("gg / G", "jump to top / bottom"),
+    ("Ctrl-d / Ctrl-u", "half page down / up"),
+    ("l", "expand directory"),
+    ("h", "collapse, or jump to parent"),
+    ("Enter", "expand / collapse directory"),
+    ("e", "edit file in $EDITOR"),
+    ("/", "fuzzy find: Up/Down browse, Enter keep, Esc cancel"),
+    ("D", "changes view: live repo-wide diff"),
+    ("[ / ]", "previous / next diff hunk"),
+    ("F", "follow mode: auto-jump to the newest change"),
+    ("s / u", "git stage / unstage the selected file"),
+    ("c", "commit: generated message, review in $EDITOR"),
+    ("C", "commit instantly with the generated message"),
+    ("P", "git push"),
+    ("X X", "discard changes to the file (press twice)"),
+    ("x x", "delete the file from disk (press twice)"),
+    ("Tab", "switch focus: tree <-> preview"),
+    ("Right / Left", "enter the preview / back to the tree"),
+    ("J / K", "scroll the preview"),
+    ("d", "toggle diff view in the preview"),
+    ("p", "toggle the preview pane"),
+    ("< >  or  - +", "make the tree pane narrower / wider"),
+    ("/ (in preview)", "search in the file/diff; n / N next / prev"),
+    ("y / Y", "copy file path / file contents"),
+    (".", "show hidden files"),
+    ("r", "refresh"),
+    ("?", "this help"),
+    ("q", "quit"),
+    ("mouse", "click select, double-click open, wheel scroll,"),
+    ("", "drag separator to resize, drag preview lines to copy"),
+]
+
+
+def draw_help(stdscr, app):
+    """Full-screen key reference (?)."""
+    h, w = stdscr.getmaxyx()
+    stdscr.erase()
+    for y in range(h):
+        put(stdscr, y, 0, " " * w, curses.color_pair(theme.C_TEXT))
+    put(stdscr, 0, 0, " " * w, curses.color_pair(theme.C_HEAD))
+    put(stdscr, 0, 1, "sideview — keys",
+        curses.color_pair(theme.C_HEAD) | curses.A_BOLD, w - 2)
+    body = h - 2
+    app.help_scroll = max(0, min(app.help_scroll, len(HELP) - body))
+    for row in range(body):
+        i = app.help_scroll + row
+        if i >= len(HELP):
+            break
+        key, desc = HELP[i]
+        put(stdscr, 1 + row, 2, key,
+            curses.color_pair(theme.C_TITLE) | curses.A_BOLD, 16)
+        put(stdscr, 1 + row, 19, desc,
+            curses.color_pair(theme.C_TEXT), w - 20)
+    draw_scrollbar(stdscr, w - 1, 1, body, len(HELP), app.help_scroll)
+    put(stdscr, h - 1, 0, " " * w, curses.color_pair(theme.C_BAR))
+    put(stdscr, h - 1, 1, "j/k scroll   ? / Esc / q close",
+        curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
+    curses.curs_set(0)
+    stdscr.refresh()
+
+
 def draw(stdscr, app):
+    if app.help_on:
+        draw_help(stdscr, app)
+        return
     h, w = stdscr.getmaxyx()
     stdscr.erase()
     # paint the dark background explicitly: wbkgd() merges its color pair
@@ -311,7 +377,7 @@ def draw(stdscr, app):
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 12)
         else:
             put(stdscr, h - 1, 1,
-                "⏎ open  / find  D changes  →← focus  y path  -+ size  q quit",
+                "e edit  / find  D changes  →← focus  y path  ? keys  q quit",
                 curses.color_pair(theme.C_BAR), w - 12)
         pos = f"{min(app.sel + 1, len(app.visible))}/{len(app.visible)}"
         put(stdscr, h - 1, max(0, w - len(pos) - 1), pos,

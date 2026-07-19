@@ -45,6 +45,7 @@ Keys:
                     the terminal's native text selection instead
     .               toggle hidden files
     r               refresh
+    ?               key reference (j/k scroll, any other key closes)
     q               quit
 """
 import curses
@@ -338,6 +339,20 @@ def _loop(stdscr, app):
             app.build_visible()
             continue
 
+        if app.help_on:
+            if ch in (ord("j"), curses.KEY_DOWN):
+                app.help_scroll += 1
+            elif ch in (ord("k"), curses.KEY_UP):
+                app.help_scroll = max(0, app.help_scroll - 1)
+            elif ch == 4:                          # Ctrl-d
+                app.help_scroll += 10
+            elif ch == 21:                         # Ctrl-u
+                app.help_scroll = max(0, app.help_scroll - 10)
+            elif ch != -1:                         # any other key closes
+                app.help_on = False
+                app.help_scroll = 0
+            continue
+
         node = app.selected()
         if ch in (ord("q"), 3):
             break
@@ -494,9 +509,9 @@ def _loop(stdscr, app):
                     app.message = "delete %s? press x again" % node.rel
         elif ch in (ord("c"), ord("C")):
             if app.git.counts()[0]:
+                app.message = "generating commit message…"
+                draw(stdscr, app)   # show progress before blocking
                 if ch == ord("C"):
-                    app.message = "generating commit message…"
-                    draw(stdscr, app)   # show progress before blocking
                     app.run_commit(stdscr, auto=True)  # sets app.message
                 else:
                     rc = app.run_commit(stdscr)
@@ -538,6 +553,9 @@ def _loop(stdscr, app):
         elif ch == ord("."):
             app.show_hidden = not app.show_hidden
             app.build_visible()
+        elif ch == ord("?"):
+            app.help_on = True
+            app.help_scroll = 0
         elif ch == ord("r"):
             app.git.refresh()
             app.preview_cache = None

@@ -348,6 +348,17 @@ def main():
     os.write(fd, b"\x1b")                  # clear the filter
     wait_for(fd, b"notes.txt")
 
+    # --- ?: key reference overlay; q closes it without quitting ---
+    os.write(fd, b"?")
+    ok, _ = wait_for(fd, "sideview — keys".encode())
+    check("? opens help", ok)
+    os.write(fd, b"\x04")                  # Ctrl-d: reveals the last rows
+    ok, _ = wait_for(fd, b"drag separator")
+    check("help scrolls", ok)
+    os.write(fd, b"q")                     # closes help, app keeps running
+    ok, _ = wait_for(fd, b"notes.txt")
+    check("q closes help without quitting", ok)
+
     os.write(fd, b"q")
     status, _ = wait_exit(pid, fd)
     check("q clean exit", status == 0)
