@@ -144,7 +144,12 @@ def main():
     # --- startup, icons, header ---
     pid, fd = spawn(repo)
     ok, raw_b = wait_for(fd, "⎇ main".encode())
-    raw_b += drain(fd, 0.4)           # let the whole first frame land
+    # ncurses emits each cell once, so accumulate the whole first frame
+    # (until the bottom border lands) rather than a fixed drain window
+    for _ in range(40):
+        if "╰" in raw_b.decode("utf-8", "replace"):
+            break
+        raw_b += drain(fd, 0.15)
     raw = raw_b.decode("utf-8", "replace")
     txt = STRIP.sub("", raw)
     check("branch in header", ok)
@@ -154,9 +159,8 @@ def main():
     check("py icon colored (fg 68)", "38;5;68m" in raw)
     check("md icon colored (fg 109)", "38;5;109m" in raw)
     check("framed: rounded top-left corner", "╭" in txt)
-    check("framed: rounded bottom border", "╰" in txt or "╯" in txt)
-    check("framed: repo title in header", "sideview-test" in txt
-          or os.path.basename(repo) in txt)
+    check("framed: rounded bottom border", "╰" in txt)
+    check("framed: repo title in header", os.path.basename(repo) in txt)
 
     # --- navigate: expand src/, fuzzy find ---
     os.write(fd, b"l")

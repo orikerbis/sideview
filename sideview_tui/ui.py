@@ -99,7 +99,14 @@ def draw_frame(stdscr, w, h, header, ginfo, badge, hints):
     bottom edge."""
     b = curses.color_pair(theme.C_BORDER)
     put(stdscr, 0, 0, "╭" + "─" * (w - 2) + "╮", b)
-    put(stdscr, h - 1, 0, "╰" + "─" * (w - 2) + "╯", b)
+    # bottom edge: draw cols 0..w-2 normally, then insert the corner at the
+    # last cell — writing there with addstr trips the curses lower-right-corner
+    # error and drops the whole line (taking the bottom-left ╰ with it)
+    put(stdscr, h - 1, 0, "╰" + "─" * (w - 2), b)
+    try:
+        stdscr.insstr(h - 1, w - 1, "╯", b)
+    except curses.error:
+        pass
     for y in range(1, h - 1):
         put(stdscr, y, 0, "│", b)
         put(stdscr, y, w - 1, "│", b)
