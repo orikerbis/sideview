@@ -51,7 +51,6 @@ class Node:
 class App:
     def __init__(self, root):
         self.root = root
-        self.git = Git(root)
         self.expanded = set()
         self.show_hidden = False
         self.preview_on = True
@@ -83,6 +82,8 @@ class App:
         self.help_on = False         # ?: full-screen key reference
         self.help_scroll = 0
         self.load_state()
+        # built after load_state so repo discovery honors show_hidden
+        self.git = Git(root, self.show_hidden, NOISE_DIRS)
 
     # ---------- persistence ----------
     def load_state(self):
@@ -216,8 +217,9 @@ class App:
         if self.preview_cache and self.preview_cache[0] == key:
             return self.preview_cache[1]
         code = self.git.code(node.rel)
-        if self.diff_mode and self.git.branch and code and code != "??":
-            out = run(["git", "diff", "HEAD", "--", node.rel], self.root)
+        t = self.git.target(node.rel)
+        if self.diff_mode and t and code and code != "??":
+            out = run(["git", "diff", "HEAD", "--", t[1]], t[0])
             lines = (out or "").splitlines()[:PREVIEW_MAX_LINES] or ["(no diff)"]
         else:
             try:
@@ -240,11 +242,21 @@ class App:
         if self.repo_diff is not None:
             return self.repo_diff[0]
         import re
-        raw = run(["git", "diff", "HEAD"], self.root) or ""
         rows, index = [], {}
         lang, new_ln = None, 0
         hunk_re = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)")
-        for line in raw.splitlines():
+        diff_lines = []
+        for repo in self.git.repos:
+            raw = run(["git", "diff", "HEAD"], repo.root) or ""
+            for line in raw.splitlines():
+                # rewrite the repo-relative b/ path to a root-relative one so
+                # file headers, scrolling and open-at-line stay keyed by rel
+                if line.startswith("diff --git ") and repo.prefix:
+                    line = re.sub(r" [ab]/",
+                                  lambda m: m.group(0)[:3] + repo.prefix + "/",
+                                  line)
+                diff_lines.append(line)
+        for line in diff_lines:
             if line.startswith("diff --git "):
                 rel = line.split(" b/", 1)[-1]
                 if rows:
@@ -344,16 +356,22 @@ class App:
         self.build_visible()
 
     def stage(self, node):
-        run(["git", "add", "--", node.rel], self.root)
-        self._after_git_change()
+        t = self.git.target(node.rel)
+        if t:
+            run(["git", "add", "--", t[1]], t[0])
+            self._after_git_change()
 
     def unstage(self, node):
-        run(["git", "restore", "--staged", "--", node.rel], self.root)
-        self._after_git_change()
+        t = self.git.target(node.rel)
+        if t:
+            run(["git", "restore", "--staged", "--", t[1]], t[0])
+            self._after_git_change()
 
     def discard(self, node):
-        run(["git", "checkout", "--", node.rel], self.root)
-        self._after_git_change()
+        t = self.git.target(node.rel)
+        if t:
+            run(["git", "checkout", "--", t[1]], t[0])
+            self._after_git_change()
 
     def delete_file(self, node):
         """Remove the file from disk. Returns an error string or None."""
@@ -364,6 +382,13 @@ class App:
         self._after_git_change()
         self.sel = min(self.sel, max(0, len(self.visible) - 1))
         return None
+
+    def active_repo(self):
+        """Repo that commit/push act on: the one owning the selected file
+        (root repo in single-repo mode), or None if the selection is not in
+        any repo."""
+        node = self.selected()
+        return self.git.repo_for(node.rel) if node else None
 
     # ---------- actions ----------
     def selected(self):
@@ -400,10 +425,11 @@ class App:
         self.preview_cache = None
         self.repo_diff = None
 
-    def commit_suggestion(self):
+    def commit_suggestion(self, cwd=None):
         """Commit message for the staged diff: Claude CLI when available,
         otherwise a heuristic file summary. SIDEVIEW_COMMIT_AI=off skips AI."""
-        ns = run(["git", "diff", "--staged", "--name-status"], self.root) or ""
+        cwd = cwd or self.root
+        ns = run(["git", "diff", "--staged", "--name-status"], cwd) or ""
         verbs = {"A": "add", "M": "update", "D": "remove", "R": "rename"}
         groups = {}
         for line in ns.splitlines():
@@ -418,7 +444,7 @@ class App:
         summary = ("feat: " if "add" in groups else "chore: ") + summary
         if (os.environ.get("SIDEVIEW_COMMIT_AI", "on") != "off"
                 and shutil.which("claude")):
-            diff = run(["git", "diff", "--staged"], self.root) or ""
+            diff = run(["git", "diff", "--staged"], cwd) or ""
             try:
                 r = subprocess.run(
                     ["claude", "-p", "--model", "haiku",
@@ -436,24 +462,25 @@ class App:
                 pass
         return summary
 
-    def run_push(self, stdscr):
+    def run_push(self, stdscr, cwd=None):
         """git push with live output; returns exit code."""
         suspend_tui()
         print("sideview: git push…", flush=True)
-        rc = subprocess.call(["git", "push"], cwd=self.root)
+        rc = subprocess.call(["git", "push"], cwd=cwd or self.root)
         resume_tui(stdscr)
         self._after_git_change()
         return rc
 
-    def run_commit(self, stdscr, auto=False):
+    def run_commit(self, stdscr, auto=False, cwd=None):
         """git commit with a generated message: `auto` commits in-TUI with
         output captured (and sets self.message), otherwise $EDITOR opens
         prefilled for review. Message generation always happens in-TUI so
         the terminal is only taken over for the editor itself.
         Returns exit code."""
-        msg = self.commit_suggestion()
+        cwd = cwd or self.root
+        msg = self.commit_suggestion(cwd)
         if auto:
-            r = subprocess.run(["git", "commit", "-m", msg], cwd=self.root,
+            r = subprocess.run(["git", "commit", "-m", msg], cwd=cwd,
                                capture_output=True, text=True)
             self._after_git_change()
             if r.returncode == 0:
@@ -464,8 +491,7 @@ class App:
                 self.message = "commit failed: " + err
             return r.returncode
         suspend_tui()
-        rc = subprocess.call(["git", "commit", "-m", msg, "-e"],
-                             cwd=self.root)
+        rc = subprocess.call(["git", "commit", "-m", msg, "-e"], cwd=cwd)
         resume_tui(stdscr)
         self._after_git_change()
         return rc

@@ -174,15 +174,24 @@ def draw(stdscr, app):
     home = os.path.expanduser("~")
     disp = app.root.replace(home, "~", 1)
     info = ""
-    if app.git.branch:
-        info = "⎇ " + app.git.branch
-        if app.git.ahead:
-            info += " ↑%d" % app.git.ahead
-        if app.git.behind:
-            info += " ↓%d" % app.git.behind
-        s, u, t = app.git.counts()
+    root_is_repo = any(r.prefix == "" for r in app.git.repos)
+    sel = app.selected()
+    repo = app.git.repo_for(sel.rel) if sel else None
+    if repo is None and root_is_repo:
+        repo = app.git.repos[0]
+    if repo is not None:
+        # show which repo the status is for only when root isn't itself one
+        info = ("%s ⎇ %s" % (repo.name(), repo.branch) if not root_is_repo
+                else "⎇ " + repo.branch)
+        if repo.ahead:
+            info += " ↑%d" % repo.ahead
+        if repo.behind:
+            info += " ↓%d" % repo.behind
+        s, u, t = app.git.counts(repo.prefix)
         parts = [f"{n}{lbl}" for n, lbl in ((s, "●"), (u, "±"), (t, "?")) if n]
         info += "  " + (" ".join(parts) if parts else "✔")
+    elif app.git.repos:                     # non-git root with nested repos
+        info = "%d repos" % len(app.git.repos)
     badge = (" FOLLOW " if app.follow else
              " CHANGES " if app.changes else "")
     room = w - cells(info) - cells(badge) - 4

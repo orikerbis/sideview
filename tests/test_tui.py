@@ -44,6 +44,27 @@ def make_fixture():
     return d
 
 
+def make_multirepo():
+    """A non-git parent dir holding two git repos: repoA has a modified
+    tracked file, repoB has an untracked file."""
+    parent = tempfile.mkdtemp(prefix="sideview-multi-")
+
+    def g(d, *a):
+        subprocess.run(["git", "-C", d, "-c", "user.email=t@t",
+                        "-c", "user.name=t", *a], capture_output=True)
+
+    for name, tracked in (("repoA", "alpha.py"), ("repoB", "beta.txt")):
+        d = os.path.join(parent, name)
+        os.makedirs(d)
+        g(d, "init", "-b", "main")
+        open(f"{d}/{tracked}", "w").write("x = 1\n")
+        g(d, "add", "-A")
+        g(d, "commit", "-m", "init")
+    open(f"{parent}/repoA/alpha.py", "a").write("y = 2\n")   # -> modified
+    open(f"{parent}/repoB/extra.txt", "w").write("todo\n")   # -> untracked
+    return parent
+
+
 def spawn(repo):
     pid, fd = pty.fork()
     if pid == 0:
@@ -388,6 +409,27 @@ def main():
     os.write(fd, b"q")
     wait_exit(pid, fd)
     os.environ["SIDEVIEW_ICONS"] = "nerd"
+
+    # --- multi-repo: git works on a non-git root containing repos ---
+    multi = make_multirepo()
+    pid, fd = spawn(multi)
+    ok, buf = wait_for(fd, b"repoA")
+    buf += drain(fd, 0.5)                   # let the startup frame finish
+    check("multi: repos listed", b"repoA" in buf and b"repoB" in buf)
+    # header shows the owning repo's branch even though the root isn't a repo
+    check("multi: git visible on non-git root", "⎇".encode() in buf)
+    os.write(fd, b"/alpha\r")              # find a file inside repoA
+    ok, _ = wait_for(fd, b"alpha.py")
+    check("multi: file found across repos", ok)
+    os.write(fd, b"s")                     # stage it — must target repoA
+    ok, _ = wait_for(fd, b"staged")
+    check("multi: stage reported", ok)
+    porcelain = subprocess.run(
+        ["git", "-C", os.path.join(multi, "repoA"), "status", "--porcelain"],
+        capture_output=True, text=True).stdout
+    check("multi: staged in the owning repo", porcelain.startswith("M "))
+    os.write(fd, b"q")
+    wait_exit(pid, fd)
 
     print()
     if FAILURES:

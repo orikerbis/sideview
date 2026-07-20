@@ -508,20 +508,27 @@ def _loop(stdscr, app):
                     app.pending_delete = node.rel
                     app.message = "delete %s? press x again" % node.rel
         elif ch in (ord("c"), ord("C")):
-            if app.git.counts()[0]:
+            repo = app.active_repo()
+            if repo is None:
+                app.message = "no repo here"
+            elif app.git.counts(repo.prefix)[0]:
                 app.message = "generating commit message…"
                 draw(stdscr, app)   # show progress before blocking
                 if ch == ord("C"):
-                    app.run_commit(stdscr, auto=True)  # sets app.message
+                    app.run_commit(stdscr, auto=True, cwd=repo.root)
                 else:
-                    rc = app.run_commit(stdscr)
+                    rc = app.run_commit(stdscr, cwd=repo.root)
                     app.message = ("committed" if rc == 0
                                    else "commit aborted")
             else:
                 app.message = "nothing staged (s to stage)"
         elif ch == ord("P"):
-            rc = app.run_push(stdscr)
-            app.message = "pushed ✔" if rc == 0 else "push failed"
+            repo = app.active_repo()
+            if repo is None:
+                app.message = "no repo here"
+            else:
+                rc = app.run_push(stdscr, cwd=repo.root)
+                app.message = "pushed ✔" if rc == 0 else "push failed"
         elif ch == ord("F"):
             app.follow = not app.follow
             if app.follow and not app.changes:
@@ -552,6 +559,7 @@ def _loop(stdscr, app):
             app.pscroll = max(0, app.pscroll - 3)
         elif ch == ord("."):
             app.show_hidden = not app.show_hidden
+            app.git.show_hidden = app.show_hidden   # affects repo discovery
             app.build_visible()
         elif ch == ord("?"):
             app.help_on = True
