@@ -17,10 +17,103 @@ def put(win, y, x, text, attr=0, maxw=None):
 
 
 def layout(app, w):
-    """Shared pane geometry: (split_visible, tree_width)."""
-    split = app.preview_on and w >= 60 and not app.filter_input
-    tree_w = max(24, min(int(w * app.split), w - 26)) if split else w
-    return split, tree_w
+    """Shared pane geometry: (split_visible, tree_width). Columns 0 and w-1
+    are the outer frame; content lives in 1..w-2. The tree occupies cols
+    1..tree_w, the divider sits at tree_w+1, the preview runs tree_w+2..w-2."""
+    inner = w - 2
+    split = app.preview_on and inner >= 56 and not app.filter_input
+    if not split:
+        return False, inner
+    tree_w = max(20, min(int(inner * app.split), inner - 26))
+    return True, tree_w
+
+
+def tree_guides(visible):
+    """Per-node indent-guide prefix (│ ├ └ + spaces), same width as a plain
+    2-per-depth indent, so nesting reads at a glance."""
+    n = len(visible)
+    is_last = [True] * n
+    for i in range(n):
+        d = visible[i].depth
+        for j in range(i + 1, n):
+            dj = visible[j].depth
+            if dj < d:
+                break
+            if dj == d:
+                is_last[i] = False
+                break
+    out, cont = [], []
+    for i in range(n):
+        d = visible[i].depth
+        s = "".join("│ " if (L < len(cont) and cont[L]) else "  "
+                    for L in range(d - 1))
+        if d > 0:
+            s += "└ " if is_last[i] else "├ "
+        if len(cont) < d + 1:
+            cont += [False] * (d + 1 - len(cont))
+        cont[d] = not is_last[i]
+        del cont[d + 1:]
+        out.append(s)
+    return out
+
+
+def fmt_size(nbytes):
+    for unit in ("B", "K", "M", "G"):
+        if nbytes < 1024 or unit == "G":
+            return ("%d%s" if unit == "B" else "%.1f%s") % (nbytes, unit)
+        nbytes /= 1024.0
+
+
+def fmt_age(secs):
+    for n, unit in ((86400, "d"), (3600, "h"), (60, "m")):
+        if secs >= n:
+            return "%d%s ago" % (secs // n, unit)
+    return "just now"
+
+
+def status_text(app):
+    """The file-info line: what the selected item is."""
+    if app.changes:
+        return "%d changed file(s)" % len(app.git.files)
+    node = app.selected()
+    if node is None:
+        return ""
+    if node.is_dir:
+        return node.name + "/  ·  directory"
+    try:
+        st = os.stat(node.path)
+    except OSError:
+        return node.rel
+    bits = [node.name, fmt_size(st.st_size)]
+    if not app.diff_mode:
+        bits.append("%d lines" % len(app.preview_lines(node)))
+    lang = syntax.detect(node.name)
+    if lang:
+        bits.append(lang)
+    bits.append(fmt_age(max(0, int(time.time() - st.st_mtime))))
+    return "  ·  ".join(bits)
+
+
+def draw_frame(stdscr, w, h, header, ginfo, badge, hints):
+    """Rounded outer frame; header text in the top edge, hints in the
+    bottom edge."""
+    b = curses.color_pair(theme.C_BORDER)
+    put(stdscr, 0, 0, "╭" + "─" * (w - 2) + "╮", b)
+    put(stdscr, h - 1, 0, "╰" + "─" * (w - 2) + "╯", b)
+    for y in range(1, h - 1):
+        put(stdscr, y, 0, "│", b)
+        put(stdscr, y, w - 1, "│", b)
+    # header: title (left) + git info (right), inset from the corners
+    put(stdscr, 0, 2, " " + header + " ",
+        curses.color_pair(theme.C_HEAD) | curses.A_BOLD, w - 4)
+    if badge:
+        put(stdscr, 0, 3 + cells(header) + 1, " " + badge + " ",
+            curses.color_pair(theme.C_MSG) | curses.A_BOLD)
+    if ginfo:
+        put(stdscr, 0, max(0, w - cells(ginfo) - 3), " " + ginfo + " ",
+            curses.color_pair(theme.C_HEADGIT) | curses.A_BOLD)
+    put(stdscr, h - 1, 3, " " + hints + " ",
+        curses.color_pair(theme.C_BAR), w - 6)
 
 
 def draw_scrollbar(stdscr, x, top, height, total, offset):
@@ -170,9 +263,7 @@ def draw(stdscr, app):
     for y in range(h):
         put(stdscr, y, 0, " " * w, curses.color_pair(theme.C_TEXT))
 
-    # ----- header bar -----
-    home = os.path.expanduser("~")
-    disp = app.root.replace(home, "~", 1)
+    # ----- outer frame + header -----
     info = ""
     root_is_repo = any(r.prefix == "" for r in app.git.repos)
     sel = app.selected()
@@ -192,21 +283,15 @@ def draw(stdscr, app):
         info += "  " + (" ".join(parts) if parts else "✔")
     elif app.git.repos:                     # non-git root with nested repos
         info = "%d repos" % len(app.git.repos)
-    badge = (" FOLLOW " if app.follow else
-             " CHANGES " if app.changes else "")
-    room = w - cells(info) - cells(badge) - 4
-    if len(disp) > room:
-        disp = "…" + disp[-(max(room, 8) - 1):]
-    put(stdscr, 0, 0, " " * w, curses.color_pair(theme.C_HEAD))
-    put(stdscr, 0, 1, disp,
-        curses.color_pair(theme.C_HEAD) | curses.A_BOLD, room + 1)
-    if badge:
-        put(stdscr, 0, 2 + cells(disp), badge,
-            curses.color_pair(theme.C_MSG) | curses.A_BOLD)
-    put(stdscr, 0, max(0, w - cells(info) - 1), info,
-        curses.color_pair(theme.C_HEADGIT) | curses.A_BOLD)
+    title = os.path.basename(app.root.rstrip("/")) or app.root
+    badge = "FOLLOW" if app.follow else "CHANGES" if app.changes else ""
+    if app.changes:
+        hints = "j/k file  [ ] hunks  s/u stage  c commit  Esc back"
+    else:
+        hints = "e edit  / find  D changes  →← focus  ? keys  q quit"
+    draw_frame(stdscr, w, h, title, info, badge, hints)
 
-    body_h = h - 2
+    body_h = h - 3                          # rows 1..h-3; h-2 is the info line
     split, tree_w = layout(app, w)
 
     if app.sel < app.scroll:
@@ -214,8 +299,9 @@ def draw(stdscr, app):
     if app.sel >= app.scroll + body_h:
         app.scroll = app.sel - body_h + 1
 
-    # ----- tree pane -----
-    mark_x = tree_w - 3
+    # ----- tree pane (cols 1..tree_w; col 1 is the accent gutter) -----
+    guides = tree_guides(app.visible)
+    mark_x = tree_w                         # git-status marker gutter (right)
     for row in range(body_h):
         idx = app.scroll + row
         if idx >= len(app.visible):
@@ -237,15 +323,17 @@ def draw(stdscr, app):
         y = 1 + row
         sel = idx == app.sel
         if sel:
-            put(stdscr, y, 0, " " * tree_w, theme.SEL_ATTR)
-            put(stdscr, y, 0, "▌",
+            put(stdscr, y, 1, " " * tree_w, theme.SEL_ATTR)
+            put(stdscr, y, 1, "▌",
                 curses.color_pair(theme.C_ACCENT) | curses.A_BOLD)
             attr = theme.SEL_ATTR
         cls = icons.classify(n.name, n.is_dir, n.rel in app.expanded)
         icon_attr = (theme.ICON_PAIRS.get(cls, (attr, attr))[1 if sel else 0]
                      if theme.ICON_PAIRS else attr)
-        x = 1 + 2 * n.depth
-        put(stdscr, y, 1, "  " * n.depth, attr)
+        g = guides[idx]
+        put(stdscr, y, 2, g,
+            attr if sel else curses.color_pair(theme.C_GUIDE), mark_x - 2)
+        x = 2 + cells(g)
         if x < mark_x - 1:
             put(stdscr, y, x, ic, icon_attr, mark_x - 1 - x)
             x += cells(ic)
@@ -254,19 +342,17 @@ def draw(stdscr, app):
             put(stdscr, y, mark_x, mark,
                 (mark_attr if mark_attr and not sel else attr)
                 | curses.A_BOLD)
-    draw_scrollbar(stdscr, tree_w - 1, 1, body_h, len(app.visible), app.scroll)
 
     if not app.visible:
-        put(stdscr, 1, 1, "(no matches)" if app.filter else "(empty)",
+        put(stdscr, 1, 2, "(no matches)" if app.filter else "(empty)",
             curses.color_pair(theme.C_DIM))
 
-    # ----- preview pane -----
+    # ----- divider + preview pane -----
     if split:
-        if len(app.visible) <= body_h:
-            for row in range(body_h):
-                put(stdscr, 1 + row, tree_w - 1, "│",
-                    curses.color_pair(theme.C_DIM))
-        px, pw = tree_w + 1, w - tree_w - 2
+        for row in range(body_h):
+            put(stdscr, 1 + row, tree_w + 1, "│",
+                curses.color_pair(theme.C_BORDER))
+        px, pw = tree_w + 2, w - tree_w - 3
         node = app.selected()
         if app.changes:
             rows_data = app.repo_diff_rows()
@@ -355,40 +441,33 @@ def draw(stdscr, app):
                 put(stdscr, 1 + row, x0 + c, ln[c:c + len(app.psearch)],
                     curses.color_pair(theme.C_MSG) | curses.A_BOLD
                     | curses.A_REVERSE, max(0, budget0 - c))
-        draw_scrollbar(stdscr, w - 1, 3, body_h - 2, total, app.pscroll)
+        draw_scrollbar(stdscr, w - 2, 3, body_h - 2, total, app.pscroll)
 
-    # ----- bottom bar -----
-    put(stdscr, h - 1, 0, " " * w, curses.color_pair(theme.C_BAR))
+    # ----- status line (row h-2): input prompt, message, or file info.
+    # The key hints live in the frame's bottom border. -----
+    sy = h - 2
     if app.psearch_input:
         prompt = "in-file / " + app.psearch
-        put(stdscr, h - 1, 1, prompt,
-            curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
+        put(stdscr, sy, 2, prompt,
+            curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 4)
         curses.curs_set(1)
-        stdscr.move(h - 1, min(w - 1, 1 + cells(prompt)))
+        stdscr.move(sy, min(w - 2, 2 + cells(prompt)))
     elif app.filter_input:
         prompt = ("🔍" if icons.ICON_STYLE == "emoji" else "/") \
             + " " + app.filter
-        put(stdscr, h - 1, 1, prompt,
-            curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
+        put(stdscr, sy, 2, prompt,
+            curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 4)
         pos = f"{min(app.sel + 1, len(app.visible))}/{len(app.visible)}"
-        put(stdscr, h - 1, max(0, w - len(pos) - 1), pos,
-            curses.color_pair(theme.C_BAR) | curses.A_BOLD)
+        put(stdscr, sy, max(0, w - len(pos) - 2), pos,
+            curses.color_pair(theme.C_DIM) | curses.A_BOLD)
         curses.curs_set(1)
-        stdscr.move(h - 1, min(w - 1, 1 + cells(prompt)))
+        stdscr.move(sy, min(w - 2, 2 + cells(prompt)))
     else:
         curses.curs_set(0)
         if app.message:
-            put(stdscr, h - 1, 1, app.message,
-                curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 2)
-        elif app.changes:
-            put(stdscr, h - 1, 1,
-                "CHANGES  j/k file  [ ] hunks  s/u stage  c commit  Esc back",
-                curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 12)
+            put(stdscr, sy, 2, app.message,
+                curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 4)
         else:
-            put(stdscr, h - 1, 1,
-                "e edit  / find  D changes  →← focus  y path  ? keys  q quit",
-                curses.color_pair(theme.C_BAR), w - 12)
-        pos = f"{min(app.sel + 1, len(app.visible))}/{len(app.visible)}"
-        put(stdscr, h - 1, max(0, w - len(pos) - 1), pos,
-            curses.color_pair(theme.C_BAR) | curses.A_BOLD)
+            put(stdscr, sy, 2, status_text(app),
+                curses.color_pair(theme.C_DIM), w - 4)
     stdscr.refresh()

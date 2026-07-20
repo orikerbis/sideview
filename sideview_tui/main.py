@@ -145,11 +145,11 @@ def handle_mouse(stdscr, app, ev):
     press = not released and not motion and not wheel and (b & 3) == 0
     h, w = stdscr.getmaxyx()
     split, tree_w = layout(app, w)
-    sep = tree_w - 1
+    sep = tree_w + 1                        # divider column
 
     if wheel:
         down = (b & 1) == 1
-        if split and mx >= tree_w:
+        if split and mx > sep:
             app.pscroll = max(0, app.pscroll + (3 if down else -3))
         elif app.visible:
             app.sel = max(0, min(app.sel + (3 if down else -3),
@@ -159,7 +159,7 @@ def handle_mouse(stdscr, app, ev):
         return
 
     if app.dragging:
-        app.split = min(0.80, max(0.20, mx / max(w, 1)))
+        app.split = min(0.80, max(0.20, (mx - 1) / max(w - 2, 1)))
         app.message = "◂ resize: %d%% ▸ (also - / +)" % round(app.split * 100)
         if released:
             app.dragging = False
@@ -185,18 +185,18 @@ def handle_mouse(stdscr, app, ev):
             # keep app.psel: highlight stays until the next key/click
         return
 
-    if press and split and abs(mx - sep) <= 2:
+    if press and split and abs(mx - sep) <= 1:
         app.dragging = True
         app.message = "◂ resize ▸"
         return
-    if press and split and mx > sep + 2 and 3 <= my <= h - 2:
+    if press and split and mx > sep and 3 <= my <= h - 3:
         line = app.pscroll + my - 3
         app.psel = [line, line]
         app.psel_active = True
         return
 
     # click in the tree: select; fast second click: open
-    if press and mx < tree_w and 1 <= my <= h - 2:
+    if press and 1 <= mx <= tree_w and 1 <= my <= h - 3:
         idx = app.scroll + my - 1
         if idx < len(app.visible):
             double = (time.time() - app.last_click_t < 0.4

@@ -11,7 +11,7 @@ from . import icons
 (C_TEXT, C_DIR, C_MOD, C_ADD, C_DEL, C_UNTR, C_DIM, C_HEAD, C_HEADGIT,
  C_SEL, C_TITLE, C_BAR, C_LINENO, C_MSG, C_ACCENT,
  C_SYN_COMMENT, C_SYN_STRING, C_SYN_NUMBER, C_SYN_KEYWORD,
- C_SYN_KEY) = range(1, 21)
+ C_SYN_KEY, C_BORDER, C_GUIDE) = range(1, 23)
 
 SEL_ATTR = 0        # set by init_theme
 ICON_PAIRS = {}     # icon class -> (attr_normal, attr_selected); nerd only
@@ -42,6 +42,7 @@ def init_theme():
             C_SYN_COMMENT: (60, bg), C_SYN_STRING: (149, bg),
             C_SYN_NUMBER: (215, bg), C_SYN_KEYWORD: (141, bg),
             C_SYN_KEY: (111, bg),
+            C_BORDER: (240, bg), C_GUIDE: (238, bg),
         }
         SEL_ATTR = curses.color_pair(C_SEL) | curses.A_BOLD
         if icons.ICON_STYLE == "nerd":
@@ -70,6 +71,7 @@ def init_theme():
             C_SYN_NUMBER: (curses.COLOR_YELLOW, -1),
             C_SYN_KEYWORD: (curses.COLOR_MAGENTA, -1),
             C_SYN_KEY: (curses.COLOR_BLUE, -1),
+            C_BORDER: (curses.COLOR_BLUE, -1), C_GUIDE: (curses.COLOR_BLUE, -1),
         }
         SEL_ATTR = curses.A_REVERSE
     for pid, (f, b) in pairs.items():

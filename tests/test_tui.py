@@ -144,6 +144,7 @@ def main():
     # --- startup, icons, header ---
     pid, fd = spawn(repo)
     ok, raw_b = wait_for(fd, "⎇ main".encode())
+    raw_b += drain(fd, 0.4)           # let the whole first frame land
     raw = raw_b.decode("utf-8", "replace")
     txt = STRIP.sub("", raw)
     check("branch in header", ok)
@@ -152,11 +153,18 @@ def main():
     check("folder nerd glyph", "" in txt)
     check("py icon colored (fg 68)", "38;5;68m" in raw)
     check("md icon colored (fg 109)", "38;5;109m" in raw)
+    check("framed: rounded top-left corner", "╭" in txt)
+    check("framed: rounded bottom border", "╰" in txt or "╯" in txt)
+    check("framed: repo title in header", "sideview-test" in txt
+          or os.path.basename(repo) in txt)
 
     # --- navigate: expand src/, fuzzy find ---
     os.write(fd, b"l")
-    ok, _ = wait_for(fd, b"util.py")
+    ok, buf = wait_for(fd, b"util.py")
     check("expand shows util.py", ok)
+    # util.py is the only child of src/ -> last-child indent guide
+    buf += drain(fd, 0.3)
+    check("tree indent guide", "└".encode() in buf or "├".encode() in buf)
     os.write(fd, b"/util\r")
     ok, _ = wait_for(fd, b"src/util.py")
     check("fuzzy find", ok)
@@ -165,8 +173,11 @@ def main():
     os.write(fd, b"\x1b")            # clear filter, back to tree
     wait_for(fd, b"notes.txt")
     os.write(fd, b"j")               # src/ -> util.py
-    ok, _ = wait_for(fd, b"38;5;141m")   # tokyonight keyword magenta
+    ok, buf = wait_for(fd, b"38;5;141m")   # tokyonight keyword magenta
     check("syntax keyword colored", ok)
+    # status line shows file info (size · lines · lang · age)
+    buf += drain(fd, 0.3)
+    check("status line: file info", b" lines" in buf and "·".encode() in buf)
 
     # --- y: copy selected file's path to the clipboard ---
     os.write(fd, b"y")
