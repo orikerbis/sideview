@@ -40,10 +40,15 @@ for the default icons — or run with `SIDEVIEW_ICONS=emoji`.
 ## Upgrade
 
 ```bash
-pipx upgrade sideview-tui        # pipx install (pipx reinstall also works)
+pipx upgrade sideview-tui                                  # once a new version is tagged
+pipx install --force git+https://github.com/orikerbis/sideview   # always rebuilds latest main
 # or, from a clone:
 git -C path/to/sideview pull     # the symlink picks the update up instantly
 ```
+
+> `pipx upgrade` compares version numbers, so a git install only sees a new
+> release when `version` in `pyproject.toml` is bumped. To pull the very
+> latest `main` regardless, use `pipx install --force …` above.
 
 ## Usage
 
