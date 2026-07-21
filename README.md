@@ -34,13 +34,13 @@ sideview --doctor         # check your setup (fonts, editor, git, claude)
 
 Zero-config: the icon font auto-installs on first run if missing (opt out
 with `SIDEVIEW_NO_FONT_INSTALL=1`), the editor auto-detects (`nvim`, then
-`vim`). Requires Python 3.8+ and a [Nerd Font](https://www.nerdfonts.com)
+`vim`). Requires Python 3.9+ and a [Nerd Font](https://www.nerdfonts.com)
 for the default icons — or run with `SIDEVIEW_ICONS=emoji`.
 
 ## Upgrade
 
 ```bash
-pipx upgrade sideview            # pipx install (pipx reinstall also works)
+pipx upgrade sideview-tui        # pipx install (pipx reinstall also works)
 # or, from a clone:
 git -C path/to/sideview pull     # the symlink picks the update up instantly
 ```
