@@ -21,7 +21,8 @@ def layout(app, w):
     are the outer frame; content lives in 1..w-2. The tree occupies cols
     1..tree_w, the divider sits at tree_w+1, the preview runs tree_w+2..w-2."""
     inner = w - 2
-    split = app.preview_on and inner >= 56 and not app.filter_input
+    split = (app.preview_on and inner >= 56
+             and not app.filter_input and not app.grep_input)
     if not split:
         return False, inner
     tree_w = max(20, min(int(inner * app.split), inner - 26))
@@ -32,16 +33,17 @@ def tree_guides(visible):
     """Per-node indent-guide prefix (│ ├ └ + spaces), same width as a plain
     2-per-depth indent, so nesting reads at a glance."""
     n = len(visible)
+    # is_last[i]: no later sibling at the same depth in the same parent. One
+    # reverse pass (O(n·depth)): a node is last unless we've already seen a
+    # same-depth node to its right that a shallower node hasn't reset.
     is_last = [True] * n
-    for i in range(n):
+    seen = {}
+    for i in range(n - 1, -1, -1):
         d = visible[i].depth
-        for j in range(i + 1, n):
-            dj = visible[j].depth
-            if dj < d:
-                break
-            if dj == d:
-                is_last[i] = False
-                break
+        is_last[i] = not seen.get(d, False)
+        seen[d] = True
+        for dd in [k for k in seen if k > d]:   # deeper nodes were this node's
+            del seen[dd]                        # subtree; reset past its parent
     out, cont = [], []
     for i in range(n):
         d = visible[i].depth
@@ -94,9 +96,9 @@ def status_text(app):
     return "  ·  ".join(bits)
 
 
-def draw_frame(stdscr, w, h, header, ginfo, badge, hints):
-    """Rounded outer frame; header text in the top edge, hints in the
-    bottom edge."""
+def draw_frame(stdscr, w, h, header, badge, hints):
+    """Rounded outer frame; title/badge in the top edge, hints in the bottom
+    edge. Colored git info is drawn separately (draw_git_info)."""
     b = curses.color_pair(theme.C_BORDER)
     put(stdscr, 0, 0, "╭" + "─" * (w - 2) + "╮", b)
     # bottom edge: draw cols 0..w-2 normally, then insert the corner at the
@@ -110,17 +112,29 @@ def draw_frame(stdscr, w, h, header, ginfo, badge, hints):
     for y in range(1, h - 1):
         put(stdscr, y, 0, "│", b)
         put(stdscr, y, w - 1, "│", b)
-    # header: title (left) + git info (right), inset from the corners
+    # header: title (left), inset from the corner
     put(stdscr, 0, 2, " " + header + " ",
         curses.color_pair(theme.C_HEAD) | curses.A_BOLD, w - 4)
     if badge:
         put(stdscr, 0, 3 + cells(header) + 1, " " + badge + " ",
             curses.color_pair(theme.C_MSG) | curses.A_BOLD)
-    if ginfo:
-        put(stdscr, 0, max(0, w - cells(ginfo) - 3), " " + ginfo + " ",
-            curses.color_pair(theme.C_HEADGIT) | curses.A_BOLD)
     put(stdscr, h - 1, 3, " " + hints + " ",
         curses.color_pair(theme.C_BAR), w - 6)
+
+
+def draw_git_info(stdscr, w, segs):
+    """Colored git-status segments [(text, pair)], right-aligned on the top
+    border. Segment backgrounds match the border (bg) so they sit flush."""
+    total = sum(cells(t) for t, _ in segs)
+    if total == 0:
+        return
+    x = max(3 + 1, w - total - 3)
+    put(stdscr, 0, x - 1, " ", curses.color_pair(theme.C_BORDER))
+    for text, pair in segs:
+        put(stdscr, 0, x, text, curses.color_pair(pair) | curses.A_BOLD,
+            w - 1 - x)
+        x += cells(text)
+    put(stdscr, 0, min(w - 1, x), " ", curses.color_pair(theme.C_BORDER))
 
 
 def draw_scrollbar(stdscr, x, top, height, total, offset):
@@ -204,7 +218,8 @@ HELP = [
     ("h", "collapse, or jump to parent"),
     ("Enter", "expand / collapse directory"),
     ("e", "edit file in $EDITOR"),
-    ("/", "fuzzy find: Up/Down browse, Enter keep, Esc cancel"),
+    ("/", "fuzzy find file: Up/Down browse, Enter keep, Esc cancel"),
+    ("f", "find in files: grep an expression across all files"),
     ("D", "changes view: live repo-wide diff"),
     ("[ / ]", "previous / next diff hunk"),
     ("F", "follow mode: auto-jump to the newest change"),
@@ -271,32 +286,45 @@ def draw(stdscr, app):
         put(stdscr, y, 0, " " * w, curses.color_pair(theme.C_TEXT))
 
     # ----- outer frame + header -----
-    info = ""
+    # colored git-status segments (branch cyan, ↑ green, ↓ red, staged/
+    # modified/untracked in their tree colors) shown right on the top border
+    segs = []
     root_is_repo = any(r.prefix == "" for r in app.git.repos)
     sel = app.selected()
     repo = app.git.repo_for(sel.rel) if sel else None
     if repo is None and root_is_repo:
         repo = app.git.repos[0]
     if repo is not None:
-        # show which repo the status is for only when root isn't itself one
-        info = ("%s ⎇ %s" % (repo.name(), repo.branch) if not root_is_repo
-                else "⎇ " + repo.branch)
+        if not root_is_repo:                # name the repo the status is for
+            segs.append((repo.name() + " ", theme.C_DIR))
+        segs.append(("⎇ " + repo.branch, theme.C_TITLE))
         if repo.ahead:
-            info += " ↑%d" % repo.ahead
+            segs.append((" ↑%d" % repo.ahead, theme.C_ADD))
         if repo.behind:
-            info += " ↓%d" % repo.behind
+            segs.append((" ↓%d" % repo.behind, theme.C_DEL))
         s, u, t = app.git.counts(repo.prefix)
-        parts = [f"{n}{lbl}" for n, lbl in ((s, "●"), (u, "±"), (t, "?")) if n]
-        info += "  " + (" ".join(parts) if parts else "✔")
+        parts = [(n, g, c) for n, g, c in
+                 ((s, "●", theme.C_ADD), (u, "±", theme.C_MOD),
+                  (t, "?", theme.C_UNTR)) if n]
+        segs.append(("  ", theme.C_TEXT))
+        if parts:
+            for n, g, c in parts:
+                segs.append(("%d%s " % (n, g), c))
+        else:
+            segs.append(("✔", theme.C_ADD))
     elif app.git.repos:                     # non-git root with nested repos
-        info = "%d repos" % len(app.git.repos)
+        segs.append(("%d repos" % len(app.git.repos), theme.C_TITLE))
     title = os.path.basename(app.root.rstrip("/")) or app.root
-    badge = "FOLLOW" if app.follow else "CHANGES" if app.changes else ""
-    if app.changes:
+    badge = ("GREP" if app.grep_on else "FOLLOW" if app.follow
+             else "CHANGES" if app.changes else "")
+    if app.grep_on:
+        hints = "j/k result  e open at line  Esc back to tree"
+    elif app.changes:
         hints = "j/k file  [ ] hunks  s/u stage  c commit  Esc back"
     else:
-        hints = "e edit  / find  D changes  →← focus  ? keys  q quit"
-    draw_frame(stdscr, w, h, title, info, badge, hints)
+        hints = "e edit  / find  f grep  D changes  →← focus  ? keys  q quit"
+    draw_frame(stdscr, w, h, title, badge, hints)
+    draw_git_info(stdscr, w, segs)
 
     body_h = h - 3                          # rows 1..h-3; h-2 is the info line
     split, tree_w = layout(app, w)
@@ -356,9 +384,11 @@ def draw(stdscr, app):
 
     # ----- divider + preview pane -----
     if split:
+        bd = curses.color_pair(theme.C_BORDER)
         for row in range(body_h):
-            put(stdscr, 1 + row, tree_w + 1, "│",
-                curses.color_pair(theme.C_BORDER))
+            put(stdscr, 1 + row, tree_w + 1, "│", bd)
+        put(stdscr, 0, tree_w + 1, "┬", bd)       # meet the top border
+        # (no ┴ at the bottom: the bottom border carries the key hints)
         px, pw = tree_w + 2, w - tree_w - 3
         node = app.selected()
         if app.changes:
@@ -395,7 +425,13 @@ def draw(stdscr, app):
                 node.rel + ("  [diff]" if app.diff_mode else ""),
                 curses.color_pair(theme.C_TITLE) | curses.A_BOLD,
                 pw - cells(t_icon) - (x - px))
-        put(stdscr, 2, px, "─" * pw, curses.color_pair(theme.C_DIM))
+        # title underline, connected to the divider and the right border
+        put(stdscr, 2, px, "─" * pw, bd)
+        put(stdscr, 2, tree_w + 1, "├", bd)
+        try:
+            stdscr.insstr(2, w - 1, "┤", bd)
+        except curses.error:
+            pass
         if app.changes:
             draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h)
         lang = (syntax.detect(node.name)
@@ -469,11 +505,25 @@ def draw(stdscr, app):
             curses.color_pair(theme.C_DIM) | curses.A_BOLD)
         curses.curs_set(1)
         stdscr.move(sy, min(w - 2, 2 + cells(prompt)))
+    elif app.grep_input:
+        prompt = "find in files: " + app.grep_q
+        put(stdscr, sy, 2, prompt,
+            curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 4)
+        curses.curs_set(1)
+        stdscr.move(sy, min(w - 2, 2 + cells(prompt)))
     else:
         curses.curs_set(0)
         if app.message:
             put(stdscr, sy, 2, app.message,
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD, w - 4)
+        elif app.grep_on:
+            if app.grep_busy:
+                info = "grep '%s' — searching…" % app.grep_q
+            else:
+                info = "grep '%s' — %d match(es)" % (
+                    app.grep_q, len(app.grep_results))
+            put(stdscr, sy, 2, info,
+                curses.color_pair(theme.C_TITLE) | curses.A_BOLD, w - 4)
         else:
             put(stdscr, sy, 2, status_text(app),
                 curses.color_pair(theme.C_DIM), w - 4)

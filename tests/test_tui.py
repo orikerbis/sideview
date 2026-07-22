@@ -161,6 +161,8 @@ def main():
     check("framed: rounded top-left corner", "╭" in txt)
     check("framed: rounded bottom border", "╰" in txt)
     check("framed: repo title in header", os.path.basename(repo) in txt)
+    # colored git counts on the top border (app.py modified at startup)
+    check("header shows change counts", "±" in txt)
 
     # --- navigate: expand src/, fuzzy find ---
     os.write(fd, b"l")
@@ -443,6 +445,16 @@ def main():
         ["git", "-C", os.path.join(multi, "repoA"), "status", "--porcelain"],
         capture_output=True, text=True).stdout
     check("multi: staged in the owning repo", porcelain.startswith("M "))
+    # find-in-files (f): grep an expression across every repo under the root
+    os.write(fd, b"\x1b")                  # clear the /alpha filter
+    drain(fd, 0.3)
+    os.write(fd, b"ftodo\r")               # f -> "todo" -> Enter (repoB/extra)
+    ok, buf = wait_for(fd, b"extra.txt:")
+    check("grep: finds a match across repos", ok)
+    buf += drain(fd, 0.5)
+    check("grep: lists file:line", b"extra.txt:1" in buf)
+    check("grep: reports a match count", b"match(es)" in buf)
+    os.write(fd, b"\x1b")                   # back to the tree
     os.write(fd, b"q")
     wait_exit(pid, fd)
 

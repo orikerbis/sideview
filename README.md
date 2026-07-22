@@ -18,9 +18,14 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 - **Git actions from the pane**: stage/unstage, **generated
   Conventional-Commits messages** (`c` review in `$EDITOR`, `C` instant,
   both without leaving the TUI), push, discard, delete
-- **Fuzzy finder** (`/`), full **mouse support** (click, wheel,
-  drag-resize, drag-copy), per-repo **persistence**, VSCode-style
-  colored **file icons**, **tokyonight** theme with graceful fallback
+- **Fuzzy finder** (`/`) and **find-in-files** (`f`): grep an expression
+  across every file (all repos), jump straight to the matching line
+- **Multi-repo aware**: point it at a folder full of repos (`~/code`) and
+  every git action/status resolves to the owning repo, refreshed off the
+  UI thread so a big tree stays snappy
+- Full **mouse support** (click, wheel, drag-resize, drag-copy), per-repo
+  **persistence**, VSCode-style colored **file icons**, **tokyonight**
+  theme with graceful fallback
 
 ## Install
 
@@ -67,7 +72,8 @@ Press `?` inside sideview for the full reference with explanations.
 | `j`/`k`, `gg`/`G`, `Ctrl-d`/`u` | move / top-bottom / half page |
 | `l` / `h` / `Enter` | expand dir / collapse / toggle dir |
 | `e` | edit file in `$EDITOR` |
-| `/` | fuzzy find (`↑`/`↓` browse, `e` open, `Esc` cancel) |
+| `/` | fuzzy find files (`↑`/`↓` browse, `e` open, `Esc` cancel) |
+| `f` | find in files: grep across all files, `e` opens at the match |
 | `D` | changes view: live repo-wide diff (`[` `]` hunks, `Esc` exits) |
 | `F` | follow mode: auto-jump to the newest change |
 | `s` / `u` | git stage / unstage |

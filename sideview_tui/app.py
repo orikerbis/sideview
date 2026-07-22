@@ -5,10 +5,14 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 from . import syntax
 from .gitstate import Git, run
+
+GREP_MAX_HITS = 1000
+GREP_MAX_BYTES = 512 * 1024
 
 NOISE_DIRS = {
     "node_modules", "__pycache__", ".venv", "venv", ".cache", ".idea",
@@ -81,6 +85,14 @@ class App:
         self.psearch_input = False
         self.help_on = False         # ?: full-screen key reference
         self.help_scroll = 0
+        self.grep_q = ""             # f: find-in-files (content grep)
+        self.grep_input = False
+        self.grep_on = False         # showing grep results in place of the tree
+        self.grep_busy = False
+        self.grep_results = []       # list of (rel, lineno, snippet)
+        self._grep_lock = threading.Lock()
+        self._grep_pending = None
+        self._grep_token = 0         # ignore results from superseded searches
         self.load_state()
         # built after load_state so repo discovery honors show_hidden
         self.git = Git(root, self.show_hidden, NOISE_DIRS)
@@ -149,6 +161,14 @@ class App:
         return keep
 
     def build_visible(self):
+        if self.grep_on:
+            self.visible = [
+                Node(os.path.join(self.root, rel), rel,
+                     "%s:%d" % (rel, ln), False, 0)
+                for (rel, ln, _snip) in self.grep_results
+            ]
+            self.sel = min(self.sel, max(0, len(self.visible) - 1))
+            return
         if self.changes:
             self.visible = [
                 Node(os.path.join(self.root, rel), rel, rel, False, 0)
@@ -202,6 +222,87 @@ class App:
         hits.sort()
         return [Node(os.path.join(self.root, rel), rel, rel, False, 0)
                 for _, _, rel in hits[:500]]
+
+    # ---------- find in files (content grep) ----------
+    def start_grep(self, query):
+        """Run a content search across every file on a background thread so a
+        huge tree never freezes the UI; consume_grep() picks up the result."""
+        self.grep_q = query
+        self.grep_on = True
+        self.grep_busy = True
+        self.grep_results = []
+        self.psearch = query          # so the preview highlights matches
+        self._grep_token += 1
+        token = self._grep_token
+        with self._grep_lock:
+            self._grep_pending = None
+        threading.Thread(target=self._grep_worker, args=(query, token),
+                         daemon=True).start()
+
+    def _grep_worker(self, query, token):
+        q = query.lower()
+        results = []
+        try:
+            for dirpath, dirnames, filenames in os.walk(self.root):
+                if token != self._grep_token:
+                    return                # superseded by a newer search
+                dirnames[:] = [
+                    d for d in dirnames if d != ".git"
+                    and (self.show_hidden
+                         or (not d.startswith(".") and d not in NOISE_DIRS))]
+                for f in filenames:
+                    if not self.show_hidden and f.startswith("."):
+                        continue
+                    path = os.path.join(dirpath, f)
+                    try:
+                        with open(path, "rb") as fh:
+                            blob = fh.read(GREP_MAX_BYTES)
+                    except OSError:
+                        continue
+                    if b"\0" in blob[:8192]:            # skip binaries
+                        continue
+                    text = blob.decode("utf-8", "replace")
+                    if q not in text.lower():           # quick whole-file reject
+                        continue
+                    rel = os.path.relpath(path, self.root)
+                    for i, line in enumerate(text.splitlines(), 1):
+                        if q in line.lower():
+                            results.append((rel, i, line.strip()[:200]))
+                            if len(results) >= GREP_MAX_HITS:
+                                raise StopIteration
+        except StopIteration:
+            pass
+        with self._grep_lock:
+            if token == self._grep_token:
+                self._grep_pending = results
+                self.grep_busy = False
+
+    def consume_grep(self):
+        """Apply finished grep results. True when results were applied."""
+        with self._grep_lock:
+            pending = self._grep_pending
+            self._grep_pending = None
+        if pending is None:
+            return False
+        self.grep_results = pending
+        self.build_visible()
+        self.scroll_to_grep()
+        return True
+
+    def scroll_to_grep(self):
+        """Scroll the preview to the matched line of the selected result."""
+        if not (self.grep_on and self.grep_results):
+            return
+        idx = min(self.sel, len(self.grep_results) - 1)
+        _rel, ln, _snip = self.grep_results[idx]
+        self.pscroll = max(0, ln - 3)     # a couple of lines of context above
+
+    def exit_grep(self):
+        self.grep_on = self.grep_input = False
+        self.grep_q = self.psearch = ""
+        self.grep_results = []
+        self._grep_token += 1             # abandon any in-flight worker
+        self.grep_busy = False
 
     # ---------- preview ----------
     def preview_lines(self, node):
@@ -462,14 +563,31 @@ class App:
                 pass
         return summary
 
-    def run_push(self, stdscr, cwd=None):
-        """git push with live output; returns exit code."""
-        suspend_tui()
-        print("sideview: git push…", flush=True)
-        rc = subprocess.call(["git", "push"], cwd=cwd or self.root)
-        resume_tui(stdscr)
+    def run_push(self, cwd=None):
+        """git push captured in-TUI (no curses suspend): sets self.message
+        with the result. GIT_TERMINAL_PROMPT=0 + a timeout means a missing
+        credential fails fast with a message instead of hanging invisibly.
+        Returns exit code (or None on timeout)."""
+        cwd = cwd or self.root
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+        try:
+            r = subprocess.run(["git", "push"], cwd=cwd, capture_output=True,
+                               text=True, timeout=120, env=env)
+        except subprocess.TimeoutExpired:
+            self.message = "push timed out"
+            return None
+        except Exception as e:
+            self.message = "push failed: " + str(e)[:80]
+            return None
         self._after_git_change()
-        return rc
+        out = (r.stderr or r.stdout or "").strip().splitlines()
+        tail = out[-1].strip() if out else ""
+        if r.returncode == 0:
+            self.message = ("pushed ✔ " + tail)[:100] if tail else "pushed ✔"
+        else:
+            self.message = ("push failed: " + tail)[:100] if tail \
+                else "push failed"
+        return r.returncode
 
     def run_commit(self, stdscr, auto=False, cwd=None):
         """git commit with a generated message: `auto` commits in-TUI with

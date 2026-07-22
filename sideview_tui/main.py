@@ -16,6 +16,9 @@ Keys:
     Ctrl-d/Ctrl-u   half page down/up
     /               fuzzy find file (type to filter, Up/Down to
                     browse results, e open, Esc cancel)
+    f               find in files: grep an expression across every file
+                    in the tree (all repos); results list file:line, e
+                    opens at the match, Esc returns to the tree
     D               changes view: one repo-wide diff of everything that
                     changed (untracked files included), updating live as
                     files change on disk (e.g. by an AI agent); the file
@@ -156,6 +159,8 @@ def handle_mouse(stdscr, app, ev):
                                  len(app.visible) - 1))
             if app.changes:
                 app.scroll_to_selected_change()
+            elif app.grep_on:
+                app.scroll_to_grep()
         return
 
     if app.dragging:
@@ -207,6 +212,8 @@ def handle_mouse(stdscr, app, ev):
             app.psel = None
             if app.changes:
                 app.scroll_to_selected_change()
+            elif app.grep_on:
+                app.scroll_to_grep()
             if double:
                 node = app.visible[idx]
                 if node.is_dir:
@@ -277,12 +284,15 @@ def _loop(stdscr, app):
         app.message = ""
 
         if ch == -1:
+            app.consume_grep()  # apply background find-in-files results
             if time.time() - app.last_git > 3:
-                app.git.refresh()
+                app.git.start_refresh()  # background: never blocks the UI
                 app.last_git = time.time()
+            if app.git.consume_update():
                 app.preview_cache = None
                 app.repo_diff = None
-                app.build_visible()  # pick up created/deleted files
+                if not app.grep_on:
+                    app.build_visible()  # pick up created/deleted files
                 if app.follow and app.changes:
                     newest = app.newest_change()
                     for i, n in enumerate(app.visible):
@@ -337,6 +347,24 @@ def _loop(stdscr, app):
                 app.filter += chr(ch)
                 app.sel = 0
             app.build_visible()
+            continue
+
+        if app.grep_input:
+            if ch == 27:
+                app.exit_grep()
+                app.build_visible()
+            elif ch in (10, 13, curses.KEY_ENTER):
+                app.grep_input = False
+                if app.grep_q.strip():
+                    app.sel = app.pscroll = 0
+                    app.start_grep(app.grep_q)
+                else:
+                    app.grep_on = False
+                app.build_visible()
+            elif ch in (curses.KEY_BACKSPACE, 127, 8):
+                app.grep_q = app.grep_q[:-1]
+            elif 32 <= ch < 127:
+                app.grep_q += chr(ch)
             continue
 
         if app.help_on:
@@ -436,7 +464,12 @@ def _loop(stdscr, app):
                 app.toggle_dir(node)
                 app.build_visible()
         elif ch == ord("e"):
-            if app.focus == "preview" and app.changes:
+            if app.grep_on and node and not node.is_dir and app.grep_results:
+                _r, ln, _s = app.grep_results[
+                    min(app.sel, len(app.grep_results) - 1)]
+                app.edit(stdscr, node, ln)
+                app.build_visible()
+            elif app.focus == "preview" and app.changes:
                 rel, line = app.changes_line_at(app.pscroll)
                 if rel:
                     path = os.path.join(app.root, rel)
@@ -457,10 +490,14 @@ def _loop(stdscr, app):
             else:
                 app.filter_input, app.filter, app.sel = True, "", 0
                 app.build_visible()
-        elif ch == 27:                             # Esc: leave changes/filter
+        elif ch == ord("f"):                       # find in files (grep)
+            app.grep_input, app.grep_q, app.grep_on = True, "", False
+        elif ch == 27:                             # Esc: leave changes/filter/grep
             if app.changes:
                 app.changes = app.diff_mode = False
                 app.sel = app.pscroll = 0
+            if app.grep_on:
+                app.exit_grep()
             app.filter = ""
             app.build_visible()
         elif ch == ord("d"):
@@ -527,8 +564,12 @@ def _loop(stdscr, app):
             if repo is None:
                 app.message = "no repo here"
             else:
-                rc = app.run_push(stdscr, cwd=repo.root)
-                app.message = "pushed ✔" if rc == 0 else "push failed"
+                # progress text must not share a prefix with the result
+                # ("push…"): ncurses only redraws changed cells, so a shared
+                # prefix would keep "push failed"/"pushed" from rendering whole
+                app.message = "→ pushing…"
+                draw(stdscr, app)              # show progress before blocking
+                app.run_push(cwd=repo.root)    # sets app.message with result
         elif ch == ord("F"):
             app.follow = not app.follow
             if app.follow and not app.changes:
@@ -560,6 +601,7 @@ def _loop(stdscr, app):
         elif ch == ord("."):
             app.show_hidden = not app.show_hidden
             app.git.show_hidden = app.show_hidden   # affects repo discovery
+            app.git.start_refresh(rediscover=True)
             app.build_visible()
         elif ch == ord("?"):
             app.help_on = True
@@ -580,6 +622,10 @@ def _loop(stdscr, app):
                 ord("j"), ord("k"), curses.KEY_DOWN, curses.KEY_UP,
                 ord("g"), ord("G"), 4, 21, ord("D")):
             app.scroll_to_selected_change()
+        if app.grep_on and ch in (
+                ord("j"), ord("k"), curses.KEY_DOWN, curses.KEY_UP,
+                ord("g"), ord("G"), 4, 21):
+            app.scroll_to_grep()
         app.pending_g = False
 
 
