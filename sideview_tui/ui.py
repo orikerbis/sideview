@@ -96,9 +96,9 @@ def status_text(app):
     return "  ·  ".join(bits)
 
 
-def draw_frame(stdscr, w, h, header, badge, hints):
-    """Rounded outer frame; title/badge in the top edge, hints in the bottom
-    edge. Colored git info is drawn separately (draw_git_info)."""
+def draw_frame(stdscr, w, h, hints):
+    """Rounded outer frame with the key hints in the bottom edge. The header
+    text (repo/branch + change indicator) is drawn by draw_header."""
     b = curses.color_pair(theme.C_BORDER)
     put(stdscr, 0, 0, "╭" + "─" * (w - 2) + "╮", b)
     # bottom edge: draw cols 0..w-2 normally, then insert the corner at the
@@ -112,29 +112,43 @@ def draw_frame(stdscr, w, h, header, badge, hints):
     for y in range(1, h - 1):
         put(stdscr, y, 0, "│", b)
         put(stdscr, y, w - 1, "│", b)
-    # header: title (left), inset from the corner
-    put(stdscr, 0, 2, " " + header + " ",
-        curses.color_pair(theme.C_HEAD) | curses.A_BOLD, w - 4)
-    if badge:
-        put(stdscr, 0, 3 + cells(header) + 1, " " + badge + " ",
-            curses.color_pair(theme.C_MSG) | curses.A_BOLD)
     put(stdscr, h - 1, 3, " " + hints + " ",
         curses.color_pair(theme.C_BAR), w - 6)
 
 
-def draw_git_info(stdscr, w, segs):
-    """Colored git-status segments [(text, pair)], right-aligned on the top
-    border. Segment backgrounds match the border (bg) so they sit flush."""
-    total = sum(cells(t) for t, _ in segs)
-    if total == 0:
-        return
-    x = max(3 + 1, w - total - 3)
-    put(stdscr, 0, x - 1, " ", curses.color_pair(theme.C_BORDER))
-    for text, pair in segs:
-        put(stdscr, 0, x, text, curses.color_pair(pair) | curses.A_BOLD,
-            w - 1 - x)
-        x += cells(text)
-    put(stdscr, 0, min(w - 1, x), " ", curses.color_pair(theme.C_BORDER))
+def draw_header(stdscr, w, left, right, badge):
+    """Top border content: repo name + branch on the left (updates with the
+    selection), a compact + / - change indicator on the right. Both share the
+    border background so they sit flush on the frame line, and the left is
+    capped short of the right so they can never collide in a narrow pane."""
+    bd = curses.color_pair(theme.C_BORDER)
+    # right side first, so the left can budget around it
+    rtotal = sum(cells(t) for t, _ in right)
+    rx = w - rtotal - 3
+    if rtotal:
+        put(stdscr, 0, rx - 1, " ", bd)
+        x = rx
+        for text, pair in right:
+            put(stdscr, 0, x, text, curses.color_pair(pair) | curses.A_BOLD)
+            x += cells(text)
+        put(stdscr, 0, min(w - 1, x), " ", bd)
+    # left: repo name + branch (+ optional mode badge), capped short of right
+    limit = (rx if rtotal else w - 1) - 1
+    x = 2
+    put(stdscr, 0, x, " ", bd)
+    x += 1
+    for text, pair in left:
+        if x >= limit:
+            break
+        seg = fit(text, limit - x)
+        put(stdscr, 0, x, seg, curses.color_pair(pair) | curses.A_BOLD)
+        x += cells(seg)
+    if badge and x + cells(badge) + 3 < limit:
+        put(stdscr, 0, x + 1, " " + badge + " ",
+            curses.color_pair(theme.C_MSG) | curses.A_BOLD)
+        x += cells(badge) + 3
+    if x < limit:
+        put(stdscr, 0, x, " ", bd)
 
 
 def draw_scrollbar(stdscr, x, top, height, total, offset):
@@ -286,35 +300,32 @@ def draw(stdscr, app):
         put(stdscr, y, 0, " " * w, curses.color_pair(theme.C_TEXT))
 
     # ----- outer frame + header -----
-    # colored git-status segments (branch cyan, ↑ green, ↓ red, staged/
-    # modified/untracked in their tree colors) shown right on the top border
-    segs = []
     root_is_repo = any(r.prefix == "" for r in app.git.repos)
     sel = app.selected()
     repo = app.git.repo_for(sel.rel) if sel else None
     if repo is None and root_is_repo:
         repo = app.git.repos[0]
-    if repo is not None:
-        if not root_is_repo:                # name the repo the status is for
-            segs.append((repo.name() + " ", theme.C_DIR))
-        segs.append(("⎇ " + repo.branch, theme.C_TITLE))
-        if repo.ahead:
-            segs.append((" ↑%d" % repo.ahead, theme.C_ADD))
-        if repo.behind:
-            segs.append((" ↓%d" % repo.behind, theme.C_DEL))
-        s, u, t = app.git.counts(repo.prefix)
-        parts = [(n, g, c) for n, g, c in
-                 ((s, "●", theme.C_ADD), (u, "±", theme.C_MOD),
-                  (t, "?", theme.C_UNTR)) if n]
-        segs.append(("  ", theme.C_TEXT))
-        if parts:
-            for n, g, c in parts:
-                segs.append(("%d%s " % (n, g), c))
-        else:
-            segs.append(("✔", theme.C_ADD))
-    elif app.git.repos:                     # non-git root with nested repos
-        segs.append(("%d repos" % len(app.git.repos), theme.C_TITLE))
     title = os.path.basename(app.root.rstrip("/")) or app.root
+    # left of the top border: the owning repo's name (cyan) + branch (yellow),
+    # updating as the selection moves between repos
+    left = []
+    if repo is not None:
+        left.append((repo.name(), theme.C_TITLE))
+        left.append(("  ⎇ " + repo.branch, theme.C_MOD))
+    elif app.git.repos:
+        left.append((title, theme.C_HEAD))
+        left.append(("  %d repos" % len(app.git.repos), theme.C_DIM))
+    else:
+        left.append((title, theme.C_HEAD))
+    # right of the top border: a compact change indicator — +new (green) and
+    # -modified (red), shown only when there is something to report
+    right = []
+    if repo is not None:
+        s, u, t = app.git.counts(repo.prefix)
+        if s + t:
+            right.append(("+%d" % (s + t), theme.C_ADD))
+        if u:
+            right.append((("  " if right else "") + "-%d" % u, theme.C_DEL))
     badge = ("GREP" if app.grep_on else "FOLLOW" if app.follow
              else "CHANGES" if app.changes else "")
     if app.grep_on:
@@ -323,8 +334,8 @@ def draw(stdscr, app):
         hints = "j/k file  [ ] hunks  s/u stage  c commit  Esc back"
     else:
         hints = "e edit  / find  f grep  D changes  →← focus  ? keys  q quit"
-    draw_frame(stdscr, w, h, title, badge, hints)
-    draw_git_info(stdscr, w, segs)
+    draw_frame(stdscr, w, h, hints)
+    draw_header(stdscr, w, left, right, badge)
 
     body_h = h - 3                          # rows 1..h-3; h-2 is the info line
     split, tree_w = layout(app, w)

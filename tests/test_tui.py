@@ -161,8 +161,9 @@ def main():
     check("framed: rounded top-left corner", "╭" in txt)
     check("framed: rounded bottom border", "╰" in txt)
     check("framed: repo title in header", os.path.basename(repo) in txt)
-    # colored git counts on the top border (app.py modified at startup)
-    check("header shows change counts", "±" in txt)
+    # compact +/- change indicator on the top border (app.py modified,
+    # notes.txt untracked at startup)
+    check("header shows change indicator", "+1" in txt and "-1" in txt)
 
     # --- navigate: expand src/, fuzzy find ---
     os.write(fd, b"l")
