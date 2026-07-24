@@ -70,6 +70,7 @@ class App:
         self.filter_input = False
         self.pending_g = False
         self.visible = []
+        self.guides = None     # per-node indent guides, filled lazily by draw
         self.preview_cache = None
         self.last_git = time.time()
         self.message = ""
@@ -161,6 +162,7 @@ class App:
         return keep
 
     def build_visible(self):
+        self.guides = None     # visible list changes -> guides recompute
         if self.grep_on:
             self.visible = [
                 Node(os.path.join(self.root, rel), rel,

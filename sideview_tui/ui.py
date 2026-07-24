@@ -288,18 +288,8 @@ def draw_help(stdscr, app):
     stdscr.refresh()
 
 
-def draw(stdscr, app):
-    if app.help_on:
-        draw_help(stdscr, app)
-        return
-    h, w = stdscr.getmaxyx()
-    stdscr.erase()
-    # paint the dark background explicitly: wbkgd() merges its color pair
-    # into every cell on some ncurses builds, flattening per-cell colors
-    for y in range(h):
-        put(stdscr, y, 0, " " * w, curses.color_pair(theme.C_TEXT))
-
-    # ----- outer frame + header -----
+def header_content(app):
+    """(left, right, badge, hints) for the top border and bottom edge."""
     root_is_repo = any(r.prefix == "" for r in app.git.repos)
     sel = app.selected()
     repo = app.git.repo_for(sel.rel) if sel else None
@@ -334,19 +324,14 @@ def draw(stdscr, app):
         hints = "j/k file  [ ] hunks  s/u stage  c commit  Esc back"
     else:
         hints = "e edit  / find  f grep  D changes  →← focus  ? keys  q quit"
-    draw_frame(stdscr, w, h, hints)
-    draw_header(stdscr, w, left, right, badge)
+    return left, right, badge, hints
 
-    body_h = h - 3                          # rows 1..h-3; h-2 is the info line
-    split, tree_w = layout(app, w)
 
-    if app.sel < app.scroll:
-        app.scroll = app.sel
-    if app.sel >= app.scroll + body_h:
-        app.scroll = app.sel - body_h + 1
-
-    # ----- tree pane (cols 1..tree_w; col 1 is the accent gutter) -----
-    guides = tree_guides(app.visible)
+def draw_tree(stdscr, app, tree_w, body_h):
+    """Tree pane: cols 1..tree_w; col 1 is the accent gutter."""
+    if app.guides is None:      # invalidated by build_visible
+        app.guides = tree_guides(app.visible)
+    guides = app.guides
     mark_x = tree_w                         # git-status marker gutter (right)
     for row in range(body_h):
         idx = app.scroll + row
@@ -393,112 +378,115 @@ def draw(stdscr, app):
         put(stdscr, 1, 2, "(no matches)" if app.filter else "(empty)",
             curses.color_pair(theme.C_DIM))
 
-    # ----- divider + preview pane -----
-    if split:
-        bd = curses.color_pair(theme.C_BORDER)
-        for row in range(body_h):
-            put(stdscr, 1 + row, tree_w + 1, "│", bd)
-        put(stdscr, 0, tree_w + 1, "┬", bd)       # meet the top border
-        # (no ┴ at the bottom: the bottom border carries the key hints)
-        px, pw = tree_w + 2, w - tree_w - 3
-        node = app.selected()
-        if app.changes:
-            rows_data = app.repo_diff_rows()
-            total = len(rows_data)
-        else:
-            lines = app.preview_lines(node)
-            total = len(lines)
-        app.pscroll = max(0, min(app.pscroll, max(0, total - body_h + 2)))
-        if app.changes:
-            x = px
-            if app.focus == "preview":
-                put(stdscr, 1, x, "▶ ",
-                    curses.color_pair(theme.C_MSG) | curses.A_BOLD)
-                x += 2
-            put(stdscr, 1, x,
-                "± all changes — %d file(s)" % len(app.git.files),
-                curses.color_pair(theme.C_TITLE) | curses.A_BOLD, pw)
-        elif node:
-            x = px
-            if app.focus == "preview":
-                put(stdscr, 1, x, "▶ ",
-                    curses.color_pair(theme.C_MSG) | curses.A_BOLD)
-                x += 2
-            cls = icons.classify(node.name, node.is_dir,
-                                 node.rel in app.expanded)
-            t_icon = icons.icon_for(node.name, node.is_dir,
-                                    node.rel in app.expanded)
-            i_attr = (theme.ICON_PAIRS.get(cls, (0, 0))[0]
-                      if theme.ICON_PAIRS
-                      else curses.color_pair(theme.C_TITLE))
-            put(stdscr, 1, x, t_icon, i_attr, pw)
-            put(stdscr, 1, x + cells(t_icon),
-                node.rel + ("  [diff]" if app.diff_mode else ""),
-                curses.color_pair(theme.C_TITLE) | curses.A_BOLD,
-                pw - cells(t_icon) - (x - px))
-        # title underline, connected to the divider and the right border
-        put(stdscr, 2, px, "─" * pw, bd)
-        put(stdscr, 2, tree_w + 1, "├", bd)
-        try:
-            stdscr.insstr(2, w - 1, "┤", bd)
-        except curses.error:
-            pass
-        if app.changes:
-            draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h)
-        lang = (syntax.detect(node.name)
-                if not app.changes and node and not node.is_dir else None)
-        sel_range = sorted(app.psel) if app.psel else None
-        for row in range(2, body_h) if not app.changes else ():
-            i = app.pscroll + row - 2
-            if i >= len(lines):
-                break
-            ln = lines[i].replace("\t", "    ")
-            if sel_range and sel_range[0] <= i <= sel_range[1] \
-                    and not app.diff_mode:
-                put(stdscr, 1 + row, px, " " * pw, theme.SEL_ATTR)
-                put(stdscr, 1 + row, px, "%4d " % (i + 1) + ln,
-                    theme.SEL_ATTR, pw)
-                continue
-            if app.diff_mode:
-                attr = curses.color_pair(theme.C_TEXT)
-                if ln.startswith("diff --git"):
-                    attr = curses.color_pair(theme.C_TITLE) | curses.A_BOLD
-                elif ln.startswith("+") and not ln.startswith("+++"):
-                    attr = curses.color_pair(theme.C_ADD)
-                elif ln.startswith("-") and not ln.startswith("---"):
-                    attr = curses.color_pair(theme.C_DEL)
-                elif ln.startswith("@@"):
-                    attr = curses.color_pair(theme.C_UNTR)
-                elif ln[:5] in ("diff ", "index"):
-                    attr = curses.color_pair(theme.C_DIM)
-                put(stdscr, 1 + row, px, ln, attr, pw)
-                continue
-            num = "%4d " % (i + 1)
-            put(stdscr, 1 + row, px, num, curses.color_pair(theme.C_LINENO))
-            x, budget = px + len(num), pw - len(num)
-            x0, budget0 = x, budget
-            if lang:
-                for text, tok in syntax.segments(ln, lang):
-                    if budget <= 0:
-                        break
-                    pair = theme.SYNTAX_PAIRS.get(tok, theme.C_TEXT)
-                    put(stdscr, 1 + row, x, text,
-                        curses.color_pair(pair), budget)
-                    used = min(cells(text), budget)
-                    x += used
-                    budget -= used
-            else:
-                put(stdscr, 1 + row, x, ln,
-                    curses.color_pair(theme.C_TEXT), budget)
-            if app.psearch and app.psearch.lower() in ln.lower():
-                c = ln.lower().index(app.psearch.lower())
-                put(stdscr, 1 + row, x0 + c, ln[c:c + len(app.psearch)],
-                    curses.color_pair(theme.C_MSG) | curses.A_BOLD
-                    | curses.A_REVERSE, max(0, budget0 - c))
-        draw_scrollbar(stdscr, w - 2, 3, body_h - 2, total, app.pscroll)
 
-    # ----- status line (row h-2): input prompt, message, or file info.
-    # The key hints live in the frame's bottom border. -----
+def draw_preview(stdscr, app, w, tree_w, body_h):
+    """Divider + preview pane: title, underline, file/diff body."""
+    bd = curses.color_pair(theme.C_BORDER)
+    for row in range(body_h):
+        put(stdscr, 1 + row, tree_w + 1, "│", bd)
+    # (the ┬ meeting the top border is drawn before the header text;
+    # no ┴ at the bottom: the bottom border carries the key hints)
+    px, pw = tree_w + 2, w - tree_w - 3
+    node = app.selected()
+    if app.changes:
+        rows_data = app.repo_diff_rows()
+        total = len(rows_data)
+    else:
+        lines = app.preview_lines(node)
+        total = len(lines)
+    app.pscroll = max(0, min(app.pscroll, max(0, total - body_h + 2)))
+    if app.changes:
+        x = px
+        if app.focus == "preview":
+            put(stdscr, 1, x, "▶ ",
+                curses.color_pair(theme.C_MSG) | curses.A_BOLD)
+            x += 2
+        put(stdscr, 1, x,
+            "± all changes — %d file(s)" % len(app.git.files),
+            curses.color_pair(theme.C_TITLE) | curses.A_BOLD, pw)
+    elif node:
+        x = px
+        if app.focus == "preview":
+            put(stdscr, 1, x, "▶ ",
+                curses.color_pair(theme.C_MSG) | curses.A_BOLD)
+            x += 2
+        cls = icons.classify(node.name, node.is_dir,
+                             node.rel in app.expanded)
+        t_icon = icons.icon_for(node.name, node.is_dir,
+                                node.rel in app.expanded)
+        i_attr = (theme.ICON_PAIRS.get(cls, (0, 0))[0]
+                  if theme.ICON_PAIRS
+                  else curses.color_pair(theme.C_TITLE))
+        put(stdscr, 1, x, t_icon, i_attr, pw)
+        put(stdscr, 1, x + cells(t_icon),
+            node.rel + ("  [diff]" if app.diff_mode else ""),
+            curses.color_pair(theme.C_TITLE) | curses.A_BOLD,
+            pw - cells(t_icon) - (x - px))
+    # title underline, connected to the divider and the right border
+    put(stdscr, 2, px, "─" * pw, bd)
+    put(stdscr, 2, tree_w + 1, "├", bd)
+    try:
+        stdscr.insstr(2, w - 1, "┤", bd)
+    except curses.error:
+        pass
+    if app.changes:
+        draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h)
+    lang = (syntax.detect(node.name)
+            if not app.changes and node and not node.is_dir else None)
+    sel_range = sorted(app.psel) if app.psel else None
+    for row in range(2, body_h) if not app.changes else ():
+        i = app.pscroll + row - 2
+        if i >= len(lines):
+            break
+        ln = lines[i].replace("\t", "    ")
+        if sel_range and sel_range[0] <= i <= sel_range[1] \
+                and not app.diff_mode:
+            put(stdscr, 1 + row, px, " " * pw, theme.SEL_ATTR)
+            put(stdscr, 1 + row, px, "%4d " % (i + 1) + ln,
+                theme.SEL_ATTR, pw)
+            continue
+        if app.diff_mode:
+            attr = curses.color_pair(theme.C_TEXT)
+            if ln.startswith("diff --git"):
+                attr = curses.color_pair(theme.C_TITLE) | curses.A_BOLD
+            elif ln.startswith("+") and not ln.startswith("+++"):
+                attr = curses.color_pair(theme.C_ADD)
+            elif ln.startswith("-") and not ln.startswith("---"):
+                attr = curses.color_pair(theme.C_DEL)
+            elif ln.startswith("@@"):
+                attr = curses.color_pair(theme.C_UNTR)
+            elif ln[:5] in ("diff ", "index"):
+                attr = curses.color_pair(theme.C_DIM)
+            put(stdscr, 1 + row, px, ln, attr, pw)
+            continue
+        num = "%4d " % (i + 1)
+        put(stdscr, 1 + row, px, num, curses.color_pair(theme.C_LINENO))
+        x, budget = px + len(num), pw - len(num)
+        x0, budget0 = x, budget
+        if lang:
+            for text, tok in syntax.segments(ln, lang):
+                if budget <= 0:
+                    break
+                pair = theme.SYNTAX_PAIRS.get(tok, theme.C_TEXT)
+                put(stdscr, 1 + row, x, text,
+                    curses.color_pair(pair), budget)
+                used = min(cells(text), budget)
+                x += used
+                budget -= used
+        else:
+            put(stdscr, 1 + row, x, ln,
+                curses.color_pair(theme.C_TEXT), budget)
+        if app.psearch and app.psearch.lower() in ln.lower():
+            c = ln.lower().index(app.psearch.lower())
+            put(stdscr, 1 + row, x0 + c, ln[c:c + len(app.psearch)],
+                curses.color_pair(theme.C_MSG) | curses.A_BOLD
+                | curses.A_REVERSE, max(0, budget0 - c))
+    draw_scrollbar(stdscr, w - 2, 3, body_h - 2, total, app.pscroll)
+
+
+def draw_status(stdscr, app, w, h):
+    """Status line (row h-2): input prompt, message, or file info. The key
+    hints live in the frame's bottom border."""
     sy = h - 2
     if app.psearch_input:
         prompt = "in-file / " + app.psearch
@@ -538,4 +526,33 @@ def draw(stdscr, app):
         else:
             put(stdscr, sy, 2, status_text(app),
                 curses.color_pair(theme.C_DIM), w - 4)
+
+
+def draw(stdscr, app):
+    if app.help_on:
+        draw_help(stdscr, app)
+        return
+    h, w = stdscr.getmaxyx()
+    stdscr.erase()
+    # paint the dark background explicitly: wbkgd() merges its color pair
+    # into every cell on some ncurses builds, flattening per-cell colors
+    for y in range(h):
+        put(stdscr, y, 0, " " * w, curses.color_pair(theme.C_TEXT))
+    left, right, badge, hints = header_content(app)
+    draw_frame(stdscr, w, h, hints)
+    body_h = h - 3                          # rows 1..h-3; h-2 is the info line
+    split, tree_w = layout(app, w)
+    if split:
+        # tee joining the divider to the top border, drawn before the header
+        # so a long repo/branch name paints over it instead of being holed
+        put(stdscr, 0, tree_w + 1, "┬", curses.color_pair(theme.C_BORDER))
+    draw_header(stdscr, w, left, right, badge)
+    if app.sel < app.scroll:
+        app.scroll = app.sel
+    if app.sel >= app.scroll + body_h:
+        app.scroll = app.sel - body_h + 1
+    draw_tree(stdscr, app, tree_w, body_h)
+    if split:
+        draw_preview(stdscr, app, w, tree_w, body_h)
+    draw_status(stdscr, app, w, h)
     stdscr.refresh()

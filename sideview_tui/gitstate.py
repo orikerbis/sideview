@@ -100,7 +100,10 @@ class Git:
         """One repo's (Repo, {rel: xy}, {dirty dirs}) from a single git call."""
         repo = Repo(root, prefix)
         files, dirty = {}, set()
-        out = run(["git", "status", "--porcelain", "--branch"], root)
+        # quotepath=off: non-ASCII filenames arrive as UTF-8, not octal
+        # escapes, so status keys match the tree's names
+        out = run(["git", "-c", "core.quotepath=off",
+                   "status", "--porcelain", "--branch"], root)
         if out is None:
             repo.branch = "?"
             return repo, files, dirty

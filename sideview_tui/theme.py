@@ -5,6 +5,7 @@ Consumers must reference SEL_ATTR as `theme.SEL_ATTR` (it is assigned by
 init_theme after curses starts), never `from theme import SEL_ATTR`.
 """
 import curses
+import os
 
 from . import icons
 
@@ -15,6 +16,33 @@ from . import icons
 
 SEL_ATTR = 0        # set by init_theme
 ICON_PAIRS = {}     # icon class -> (attr_normal, attr_selected); nerd only
+
+# exact tokyonight-night RGB for the 256-color slots the theme uses,
+# applied when the terminal lets us redefine its palette (truecolor look
+# with the 256-color pair ids unchanged). SIDEVIEW_TRUECOLOR=off skips it.
+PALETTE = {
+    234: 0x1A1B26, 236: 0x24283B, 239: 0x414868,   # bg / header bg / sel bg
+    238: 0x3B4261, 240: 0x414868,                  # lineno+guide / border
+    60: 0x565F89, 103: 0x737AA2,                   # comment-dim / bar text
+    111: 0x7AA2F7, 116: 0x73DACA, 117: 0x7DCFFF,   # blue / teal / cyan
+    141: 0xBB9AF7, 149: 0x9ECE6A, 179: 0xE0AF68,   # magenta / green / yellow
+    189: 0xC0CAF5, 210: 0xF7768E, 215: 0xFF9E64,   # fg / red / orange
+}
+
+
+def _apply_truecolor():
+    if os.environ.get("SIDEVIEW_TRUECOLOR", "on") == "off":
+        return
+    try:
+        if not curses.can_change_color():
+            return
+        for slot, rgb in PALETTE.items():
+            curses.init_color(slot,
+                              round((rgb >> 16) * 1000 / 255),
+                              round(((rgb >> 8) & 0xFF) * 1000 / 255),
+                              round((rgb & 0xFF) * 1000 / 255))
+    except curses.error:
+        pass    # terminal lied about ccc: keep the stock palette
 
 # syntax token class -> color pair id
 SYNTAX_PAIRS = {
@@ -28,6 +56,7 @@ def init_theme():
     curses.start_color()
     curses.use_default_colors()
     if curses.COLORS >= 256:
+        _apply_truecolor()
         # tokyonight-night approximations: fg #c0caf5→189, blue #7aa2f7→111,
         # cyan #7dcfff→117, green #9ece6a→149, yellow #e0af68→179,
         # orange #ff9e64→215, red #f7768e→210, magenta #bb9af7→141,

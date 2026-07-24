@@ -45,10 +45,10 @@ per frame though it depends only on the visible list.
 - Cache guides: compute in `App.build_visible()` (stored as `app.guides`),
   drop the per-frame call in `ui.draw`. Guides length always matches
   `app.visible`.
-- Skip idle repaints: `_loop` redraws on every 1s `getch` timeout tick even
-  when nothing changed. Only redraw when input arrived or state changed
-  (git/grep consumed, message set), with a ~5s floor so file ages and the
-  30s "recently changed" pulse stay fresh.
+- ~~Skip idle repaints~~ — dropped during implementation: ncurses already
+  diffs the virtual screen, so an unchanged 1 Hz redraw emits ~0 bytes and
+  (with guides cached) costs ~1 ms of Python per second. Not worth the
+  preview-liveness risk.
 - Split the ~250-line `ui.draw` into `draw_tree`, `draw_preview`,
   `draw_status` (plus existing helpers). No behavior change; the pty suite
   and unit tests guard it.
