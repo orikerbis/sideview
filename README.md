@@ -12,12 +12,18 @@ live in a side terminal pane next to your editor. Pure Python stdlib
 
 - **Git-aware file tree + preview**: status colors, branch/ahead-behind
   header, syntax highlighting, per-file diffs (`d`), auto-refresh
+- **Markdown reading view** (`m`): READMEs render like a page in the
+  preview — headings, bullets, code blocks, links
 - **Changes view** (`D`): one live, pretty repo-wide diff — watch an AI
   agent's edits land in real time; **follow mode** (`F`) auto-jumps to
   the newest change
 - **Git actions from the pane**: stage/unstage, **generated
   Conventional-Commits messages** (`c` review in `$EDITOR`, `C` instant,
-  both without leaving the TUI), push, discard, delete
+  both without leaving the TUI; Claude or Cursor CLI when installed),
+  push, discard, delete
+- **Editor integration**: terminal editors take the pane over and come
+  back; GUI editors (**Cursor**, VS Code, Zed, Sublime) open at the
+  selected line without leaving the TUI
 - **Fuzzy finder** (`/`) and **find-in-files** (`f`): grep an expression
   across every file (all repos), jump straight to the matching line
 - **Multi-repo aware**: point it at a folder full of repos (`~/code`) and
@@ -83,6 +89,7 @@ Press `?` inside sideview for the full reference with explanations.
 | `x` `x` | delete selected file from disk |
 | `Tab`, `→`/`←` | focus tree ↔ preview (focused pane gets the motions) |
 | `d` / `p` | toggle diff view / preview pane |
+| `m` | markdown reading view ↔ raw text (`.md` files) |
 | `/` (in preview), `n`/`N` | search inside the file or diff |
 | `y` / `Y` | copy file path / contents |
 | `?` | key reference overlay |
@@ -90,3 +97,12 @@ Press `?` inside sideview for the full reference with explanations.
 
 Mouse: click select, double-click open, wheel scrolls, drag the separator
 to resize, drag over preview lines to copy (`⌥` for native selection).
+
+## Docs
+
+- [Usage guide](docs/usage.md) — the views and workflows, git actions,
+  editor integration, mouse
+- [Configuration](docs/configuration.md) — environment variables, icons
+  and fonts, theme, the terminal width probe
+- [Architecture](docs/architecture.md) — module map, drawing model,
+  how multi-repo git state works

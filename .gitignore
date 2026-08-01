@@ -4,3 +4,7 @@ __pycache__/
 
 # graphify knowledge-graph output (generated; rebuild with /graphify)
 graphify-out/
+
+# packaging build artifacts
+build/
+*.egg-info/

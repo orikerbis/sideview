@@ -154,6 +154,180 @@ def test_truecolor_palette():
     del os.environ["SIDEVIEW_TRUECOLOR"]
 
 
+def test_width_probe_parsing_and_fallback():
+    """DSR replies -> measured widths; safe_glyph keeps a glyph only when
+    the terminal renders it at the width curses assumes (Warp draws some
+    symbols two cells wide, garbling partial header repaints)."""
+    from sideview_tui import textutil
+    buf = b"\x1b[1;2R\x1b[1;3R"
+    check("probe parses reply columns to widths",
+          textutil.parse_probe(buf, 2) == [1, 2])
+    check("probe rejects missing replies",
+          textutil.parse_probe(b"\x1b[1;2R", 2) is None)
+    measured = {"⎇": 2, "": 1}
+    check("safe_glyph skips a wide-rendered glyph",
+          textutil.safe_glyph(["⎇", ""], measured) == "")
+    check("safe_glyph falls back to default",
+          textutil.safe_glyph(["⎇"], {"⎇": 2}, "") == "")
+    check("safe_glyph trusts unmeasured glyphs",
+          textutil.safe_glyph(["⎇"], {}) == "⎇")
+
+
+def test_header_without_branch_glyph():
+    """With BRANCH_SYM disabled (terminal renders it mis-sized), the header
+    still shows the branch, with no leftover glyph or double spaces gap."""
+    from sideview_tui import ui
+    app, win = draw_fixture("main")
+    curses.color_pair = lambda n: 0
+    curses.curs_set = lambda n: 0
+    old = ui.BRANCH_SYM
+    ui.BRANCH_SYM = ""
+    try:
+        ui.draw(win, app)
+        top = win.row(0)
+        check("branch shown without glyph",
+              "⎇" not in top and "main" in top)
+    finally:
+        ui.BRANCH_SYM = old
+
+
+def test_chrome_rows_redrawn_on_header_change():
+    """When the header or preview title changes, rows 0-1 must be marked
+    for a full physical rewrite (redrawln) so terminals that mis-track
+    glyph widths can't mix stale and fresh fragments."""
+    from sideview_tui import ui
+    app, win = draw_fixture("main")
+    curses.color_pair = lambda n: 0
+    curses.curs_set = lambda n: 0
+    calls = []
+    win.redrawln = lambda beg, num: calls.append((beg, num))
+    ui.draw(win, app)
+    check("first draw touches the chrome rows", (0, 2) in calls)
+    calls.clear()
+    ui.draw(win, app)
+    check("unchanged chrome not re-touched", not calls)
+    app.focus = "preview"
+    ui.draw(win, app)
+    check("focus change re-touches chrome", (0, 2) in calls)
+
+
+def test_markdown_render():
+    """render() styles headings/bullets/fences/inline and keeps a strict
+    one-row-per-line mapping so scroll and search indexes stay valid."""
+    from sideview_tui import markdown
+    src = ["# Title", "plain **bold** and `code`", "- item", "> quoted",
+           "```", "x = 1", "```", "---", "[link label](https://x.y)"]
+    rows = markdown.render(src)
+    check("md keeps 1:1 line mapping", len(rows) == len(src))
+    check("md heading styled, hashes stripped",
+          rows[0] == [("Title", "h1")])
+    styles1 = [s for _, s in rows[1]]
+    check("md inline bold+code segmented",
+          "bold" in styles1 and "code" in styles1)
+    check("md bold markers stripped",
+          ("bold", "bold") in rows[1] and ("code", "code") in rows[1])
+    check("md bullet becomes dot", rows[2][0] == ("• ", "bullet"))
+    check("md quote gets a bar", rows[3][0] == ("│ ", "quote_bar"))
+    check("md fence line dimmed", rows[4] == [("```", "fence")])
+    check("md code block styled", rows[5] == [("x = 1", "codeblock")])
+    check("md rule row", rows[7] == [("", "rule")])
+    check("md link shows label only",
+          rows[8] == [("link label", "link")])
+    check("md non-md name detected",
+          markdown.is_markdown("README.md")
+          and not markdown.is_markdown("readme.txt"))
+
+
+def test_markdown_preview_drawn():
+    """A selected .md file renders styled (no '#', no line numbers) with a
+    [reading] tag; after the m toggle the raw text and numbers return."""
+    from sideview_tui import ui
+    parent = tempfile.mkdtemp(prefix="sv-units-md-")
+    repo = make_repo(parent, "proj", "main")
+    open(os.path.join(repo, "README.md"), "w").write(
+        "# Big Title\n\n- first item\n")
+    os.environ["SIDEVIEW_STATE"] = os.path.join(parent, "state.json")
+    from sideview_tui.app import App
+    app = App(repo)
+    app.build_visible()
+    app.sel = next(i for i, n in enumerate(app.visible)
+                   if n.name == "README.md")
+    curses.color_pair = lambda n: 0
+    curses.curs_set = lambda n: 0
+    win = FakeWin(30, 80)
+    ui.draw(win, app)
+    body = "\n".join(win.row(y) for y in range(3, win.h - 2))
+    check("md title tag shown", "[reading]" in win.row(1))
+    check("md heading text shown without #",
+          "Big Title" in body and "# Big Title" not in body)
+    check("md bullet rendered as dot", "• first item" in body)
+    check("md hides line numbers", "   1 " not in body)
+    app.md_render = False
+    ui.draw(win, app)
+    body = "\n".join(win.row(y) for y in range(3, win.h - 2))
+    check("raw view restores markup", "# Big Title" in body)
+    check("raw tag shown", "[raw]" in win.row(1))
+
+
+def test_gui_editor_opens_without_suspend():
+    """EDITOR=cursor (or code/zed/…) opens file:line detached — the TUI
+    keeps running instead of suspending for a GUI that returns at once."""
+    from sideview_tui import app as app_mod
+    app, _ = draw_fixture("main")
+    node = app.visible[0]
+    calls = []
+    old_popen, old_editor = app_mod.subprocess.Popen, app_mod.EDITOR
+    app_mod.EDITOR = "cursor"
+    app_mod.subprocess.Popen = lambda cmd, **k: calls.append(cmd)
+    try:
+        app.edit(None, node, line=12)   # stdscr unused on the GUI path
+    finally:
+        app_mod.subprocess.Popen, app_mod.EDITOR = old_popen, old_editor
+    check("cursor gets -g file:line",
+          calls == [["cursor", "-g", node.path + ":12"]])
+    check("gui edit reports in status", "cursor" in app.message)
+
+
+def test_commit_ai_cursor_agent_fallback():
+    """Without the claude CLI, commit_suggestion falls back to
+    cursor-agent in print mode before the heuristic summary."""
+    from sideview_tui import app as app_mod
+    app, _ = draw_fixture("main")
+    calls = []
+
+    class R:
+        returncode, stdout = 0, "feat: shiny thing\n"
+
+    old_which, old_run = app_mod.shutil.which, app_mod.subprocess.run
+    app_mod.shutil.which = \
+        lambda n: "/bin/ca" if n == "cursor-agent" else None
+    app_mod.subprocess.run = lambda cmd, **k: (calls.append(cmd), R)[1]
+    try:
+        msg = app.commit_suggestion()
+    finally:
+        app_mod.shutil.which, app_mod.subprocess.run = old_which, old_run
+    # patching subprocess.run is module-global, so git calls land here too
+    agent = [c for c in calls if c[0] == "cursor-agent"]
+    check("cursor-agent used when claude missing",
+          agent and "-p" in agent[0])
+    check("cursor-agent message returned", msg == "feat: shiny thing")
+    # SIDEVIEW_COMMIT_AI=claude must never invoke cursor-agent, even
+    # though it is the only agent CLI installed here
+    calls.clear()
+    os.environ["SIDEVIEW_COMMIT_AI"] = "claude"
+    app_mod.shutil.which = \
+        lambda n: "/bin/ca" if n == "cursor-agent" else None
+    app_mod.subprocess.run = lambda cmd, **k: (calls.append(cmd), R)[1]
+    try:
+        msg = app.commit_suggestion()
+    finally:
+        app_mod.shutil.which, app_mod.subprocess.run = old_which, old_run
+        del os.environ["SIDEVIEW_COMMIT_AI"]
+    check("forced claude skips cursor-agent",
+          not [c for c in calls if c[0] == "cursor-agent"]
+          and msg != "feat: shiny thing")
+
+
 def test_guides_cached_in_build_visible():
     """Indent guides are computed once per build_visible (65% of frame time
     when recomputed per frame) and draw() renders from the cache."""
@@ -188,6 +362,13 @@ def main():
     test_tee_still_drawn_with_short_header()
     test_git_status_nonascii_path()
     test_truecolor_palette()
+    test_width_probe_parsing_and_fallback()
+    test_header_without_branch_glyph()
+    test_chrome_rows_redrawn_on_header_change()
+    test_markdown_render()
+    test_markdown_preview_drawn()
+    test_gui_editor_opens_without_suspend()
+    test_commit_ai_cursor_agent_fallback()
     test_guides_cached_in_build_visible()
     print()
     if FAILURES:

@@ -7,7 +7,10 @@ Usage:
 
 Environment:
     SIDEVIEW_ICONS=nerd|emoji|off   icon style (default nerd)
-    EDITOR                          editor for e (default nvim, else vim)
+    EDITOR                          editor for e (default nvim, else vim);
+                                    GUI editors work too (cursor, code,
+                                    zed, subl): files open at the selected
+                                    line without leaving the TUI
 
 Keys:
     j/k or arrows   move           gg / G       top / bottom
@@ -28,7 +31,7 @@ Keys:
                     (leave on while an AI agent edits your repo)
     s / u           git stage / unstage the selected file
     c / C           git commit: c opens $EDITOR prefilled with a generated
-                    message (Claude CLI if available, else a summary);
+                    message (Claude CLI, else Cursor CLI, else a summary);
                     C commits immediately with the generated message
     P               git push
     X               discard changes to the selected file (press twice)
@@ -37,6 +40,8 @@ Keys:
                     focused pane); Right arrow on a file also enters the
                     preview, Left arrow returns to the tree
     d               toggle diff view in preview
+    m               toggle markdown reading view for .md files (headings,
+                    bullets, code fences styled; press again for raw text)
     p               toggle preview pane
     < / > or - / +  make the tree pane narrower / wider
     J/K             scroll preview
@@ -57,7 +62,7 @@ import os
 import sys
 import time
 
-from . import theme
+from . import icons, markdown, theme, ui
 from .app import App, MOUSE_OFF, MOUSE_ON, Node
 from .ui import draw, layout
 
@@ -504,6 +509,12 @@ def _loop(stdscr, app):
             app.diff_mode = not app.diff_mode
             app.pscroll = 0
             app.preview_cache = None
+        elif ch == ord("m"):                       # toggle markdown reading
+            app.md_render = not app.md_render
+            app.pscroll = 0
+            if node and markdown.is_markdown(node.name):
+                app.message = ("markdown: reading view"
+                               if app.md_render else "markdown: raw view")
         elif ch == ord("p"):
             app.preview_on = not app.preview_on
         elif ch in (ord("<"), ord("-")):           # tree narrower
@@ -663,6 +674,24 @@ def maybe_install_font():
         print("Font install failed (%s) — using emoji icons." % e)
 
 
+def calibrate_glyphs():
+    """Swap chrome glyphs the terminal renders at the wrong width.
+
+    curses lays the frame out assuming wcwidth cells; a terminal that
+    draws one of these symbols wider (Warp does) garbles the row on
+    partial repaints. Measure once at startup and fall back per glyph."""
+    from .textutil import probe_widths, safe_glyph
+    branch_alts = ["⎇"]
+    if icons.ICON_STYLE == "nerd":
+        branch_alts.append("\ue0a0")   # powerline branch glyph
+    measured = probe_widths("".join(branch_alts) + "▶▌")
+    if not measured:
+        return
+    ui.BRANCH_SYM = safe_glyph(branch_alts, measured, "")
+    ui.FOCUS_SYM = safe_glyph(["▶"], measured, ">")
+    ui.GUTTER_SYM = safe_glyph(["▌"], measured, "┃")
+
+
 def cli():
     if "--doctor" in sys.argv[1:]:
         from .doctor import run_doctor
@@ -680,6 +709,7 @@ def cli():
     locale.setlocale(locale.LC_ALL, "")
     os.environ.setdefault("ESCDELAY", "50")
     maybe_install_font()
+    calibrate_glyphs()
     try:
         curses.wrapper(main, root)
     except KeyboardInterrupt:

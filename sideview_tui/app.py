@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 
-from . import syntax
+from . import markdown, syntax
 from .gitstate import Git, run
 
 GREP_MAX_HITS = 1000
@@ -21,6 +21,10 @@ NOISE_DIRS = {
 }
 PREVIEW_MAX_LINES = 800
 EDITOR = os.environ.get("EDITOR") or ("nvim" if shutil.which("nvim") else "vim")
+# GUI editors return to the shell immediately: open the file without
+# suspending the TUI. Maps editor name -> how it takes file:line.
+GUI_EDITORS = {"cursor": "-g", "code": "-g", "code-insiders": "-g",
+               "windsurf": "-g", "zed": "", "subl": ""}
 STATE_PATH = (os.environ.get("SIDEVIEW_STATE")
               or os.path.expanduser("~/.config/sideview/state.json"))
 MOUSE_ON = b"\x1b[?1002h\x1b[?1006h"   # motion-while-pressed + SGR coords
@@ -72,6 +76,8 @@ class App:
         self.visible = []
         self.guides = None     # per-node indent guides, filled lazily by draw
         self.preview_cache = None
+        self.md_render = True  # m: pretty-render .md files in the preview
+        self.md_cache = None   # ((path, mtime), rendered rows)
         self.last_git = time.time()
         self.message = ""
         self.dragging = False        # mouse-dragging the pane separator
@@ -339,6 +345,19 @@ class App:
         self.preview_cache = (key, lines)
         return lines
 
+    def md_rows(self, node, lines):
+        """Rendered markdown rows for the preview, cached per file+mtime."""
+        try:
+            mtime = os.stat(node.path).st_mtime
+        except OSError:
+            mtime = 0
+        key = (node.path, mtime)
+        if self.md_cache and self.md_cache[0] == key:
+            return self.md_cache[1]
+        rows = markdown.render(lines)
+        self.md_cache = (key, rows)
+        return rows
+
     def repo_diff_rows(self):
         """Pretty repo-wide diff as rows: (kind, lineno, text, lang).
         kinds: file, hunk, add, del, ctx, meta, blank."""
@@ -520,6 +539,18 @@ class App:
     def edit(self, stdscr, node, line=None):
         if node is None or node.is_dir:
             return
+        name = os.path.basename(EDITOR).lower()
+        if name in GUI_EDITORS:     # cursor/code/zed/…: open and stay
+            loc = node.path + (":%d" % line if line else "")
+            flag = GUI_EDITORS[name]
+            cmd = [EDITOR] + ([flag] if flag else []) + [loc]
+            try:
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                self.message = "opened in " + name
+            except OSError as e:
+                self.message = "editor failed: " + str(e)[:60]
+            return
         cmd = [EDITOR] + (["+%d" % line] if line else []) + [node.path]
         suspend_tui()
         subprocess.call(cmd)
@@ -545,24 +576,35 @@ class App:
             v + " " + ", ".join(fs[:3]) + ("…" if len(fs) > 3 else "")
             for v, fs in groups.items()) or "update"
         summary = ("feat: " if "add" in groups else "chore: ") + summary
-        if (os.environ.get("SIDEVIEW_COMMIT_AI", "on") != "off"
-                and shutil.which("claude")):
-            diff = run(["git", "diff", "--staged"], cwd) or ""
-            try:
-                r = subprocess.run(
-                    ["claude", "-p", "--model", "haiku",
-                     "Write a single-line git commit message in Conventional"
-                     " Commits format '<type>: <description>' with type one"
-                     " of feat|fix|chore|docs|refactor|test, max 70 chars,"
-                     " imperative mood, for this diff. Reply with only the"
-                     " message, nothing else."],
-                    input=diff[:60000], capture_output=True, text=True,
-                    timeout=45)
-                out = (r.stdout or "").strip()
-                if r.returncode == 0 and out:
-                    return out.splitlines()[0].strip()[:120]
-            except Exception:
-                pass
+        # SIDEVIEW_COMMIT_AI: on (auto: claude, then cursor-agent),
+        # claude / cursor (force one), off (heuristic summary only)
+        pref = os.environ.get("SIDEVIEW_COMMIT_AI", "on")
+        if pref != "off":
+            prompt = ("Write a single-line git commit message in Conventional"
+                      " Commits format '<type>: <description>' with type one"
+                      " of feat|fix|chore|docs|refactor|test, max 70 chars,"
+                      " imperative mood, for this diff. Reply with only the"
+                      " message, nothing else.")
+            diff = None
+            agents = {"claude": ["claude", "-p", "--model", "haiku", prompt],
+                      "cursor": ["cursor-agent", "-p", prompt]}
+            picked = ([agents[pref]] if pref in agents
+                      else list(agents.values()))
+            # first agent CLI present wins
+            for cmd in picked:
+                if not shutil.which(cmd[0]):
+                    continue
+                if diff is None:
+                    diff = run(["git", "diff", "--staged"], cwd) or ""
+                try:
+                    r = subprocess.run(cmd, input=diff[:60000],
+                                       capture_output=True, text=True,
+                                       timeout=45)
+                    out = (r.stdout or "").strip()
+                    if r.returncode == 0 and out:
+                        return out.splitlines()[0].strip()[:120]
+                except Exception:
+                    pass
         return summary
 
     def run_push(self, cwd=None):
@@ -610,8 +652,14 @@ class App:
                        or ["unknown error"])[0]
                 self.message = "commit failed: " + err
             return r.returncode
+        env = None
+        name = os.path.basename(EDITOR).lower()
+        if name in GUI_EDITORS:     # git must block until the GUI closes
+            wait = "-w" if name == "subl" else "--wait"
+            env = dict(os.environ, GIT_EDITOR=EDITOR + " " + wait)
         suspend_tui()
-        rc = subprocess.call(["git", "commit", "-m", msg, "-e"], cwd=cwd)
+        rc = subprocess.call(["git", "commit", "-m", msg, "-e"], cwd=cwd,
+                             env=env)
         resume_tui(stdscr)
         self._after_git_change()
         return rc

@@ -3,8 +3,16 @@ import curses
 import os
 import time
 
-from . import icons, syntax, theme
+from . import icons, markdown, syntax, theme
 from .textutil import cells, fit
+
+# Chrome glyphs. main.cli() swaps each for a fallback when the startup
+# width probe finds the terminal renders it wider than curses assumes
+# (Warp does this for some symbols) — a mismatched glyph makes partial
+# repaints of its row come out garbled.
+BRANCH_SYM = "⎇"      # header, before the branch name; fallback ""
+FOCUS_SYM = "▶"       # preview-title arrow; fallback ">"
+GUTTER_SYM = "▌"      # tree selection gutter; fallback "┃"
 
 
 def put(win, y, x, text, attr=0, maxw=None):
@@ -247,6 +255,7 @@ HELP = [
     ("Right / Left", "enter the preview / back to the tree"),
     ("J / K", "scroll the preview"),
     ("d", "toggle diff view in the preview"),
+    ("m", "toggle markdown reading view (.md files)"),
     ("p", "toggle the preview pane"),
     ("< >  or  - +", "make the tree pane narrower / wider"),
     ("/ (in preview)", "search in the file/diff; n / N next / prev"),
@@ -301,7 +310,8 @@ def header_content(app):
     left = []
     if repo is not None:
         left.append((repo.name(), theme.C_TITLE))
-        left.append(("  ⎇ " + repo.branch, theme.C_MOD))
+        sym = BRANCH_SYM + " " if BRANCH_SYM else ""
+        left.append(("  " + sym + repo.branch, theme.C_MOD))
     elif app.git.repos:
         left.append((title, theme.C_HEAD))
         left.append(("  %d repos" % len(app.git.repos), theme.C_DIM))
@@ -355,7 +365,7 @@ def draw_tree(stdscr, app, tree_w, body_h):
         sel = idx == app.sel
         if sel:
             put(stdscr, y, 1, " " * tree_w, theme.SEL_ATTR)
-            put(stdscr, y, 1, "▌",
+            put(stdscr, y, 1, GUTTER_SYM,
                 curses.color_pair(theme.C_ACCENT) | curses.A_BOLD)
             attr = theme.SEL_ATTR
         cls = icons.classify(n.name, n.is_dir, n.rel in app.expanded)
@@ -379,6 +389,64 @@ def draw_tree(stdscr, app, tree_w, body_h):
             curses.color_pair(theme.C_DIM))
 
 
+def md_attr(style):
+    """Markdown segment style -> curses attribute (tokyonight pairs)."""
+    b = curses.A_BOLD
+    italic = getattr(curses, "A_ITALIC", curses.A_UNDERLINE)
+    return {
+        "h1": curses.color_pair(theme.C_TITLE) | b,
+        "h2": curses.color_pair(theme.C_DIR) | b,
+        "h3": curses.color_pair(theme.C_UNTR) | b,
+        "bold": curses.color_pair(theme.C_TEXT) | b,
+        "em": curses.color_pair(theme.C_TEXT) | italic,
+        "code": curses.color_pair(theme.C_SYN_NUMBER),
+        "codeblock": curses.color_pair(theme.C_SYN_STRING),
+        "fence": curses.color_pair(theme.C_DIM),
+        "bullet": curses.color_pair(theme.C_SYN_KEYWORD) | b,
+        "link": curses.color_pair(theme.C_TITLE) | curses.A_UNDERLINE,
+        "quote": curses.color_pair(theme.C_DIM) | italic,
+        "quote_bar": curses.color_pair(theme.C_BORDER),
+        "rule": curses.color_pair(theme.C_BORDER),
+    }.get(style, curses.color_pair(theme.C_TEXT))
+
+
+def draw_markdown(stdscr, app, lines, px, pw, body_h):
+    """Render .md preview rows (1:1 with source lines, so scroll/search/
+    drag-select keep working on raw line indexes). No line-number gutter —
+    reading mode trades it for a cleaner page."""
+    rows = app.md_rows(app.selected(), lines)
+    sel_range = sorted(app.psel) if app.psel else None
+    for row in range(2, body_h):
+        i = app.pscroll + row - 2
+        if i >= len(rows):
+            break
+        y = 1 + row
+        if sel_range and sel_range[0] <= i <= sel_range[1]:
+            put(stdscr, y, px, " " * pw, theme.SEL_ATTR)
+            put(stdscr, y, px, "".join(t for t, _ in rows[i]),
+                theme.SEL_ATTR, pw)
+            continue
+        segs = rows[i]
+        if segs and segs[0][1] == "rule":
+            put(stdscr, y, px, "─" * pw, md_attr("rule"))
+            continue
+        x, budget = px, pw
+        for text, style in segs:
+            if budget <= 0:
+                break
+            put(stdscr, y, x, text, md_attr(style), budget)
+            used = min(cells(text), budget)
+            x += used
+            budget -= used
+        if app.psearch and app.psearch.lower() in lines[i].lower():
+            raw = "".join(t for t, _ in segs)
+            c = raw.lower().find(app.psearch.lower())
+            if c >= 0:
+                put(stdscr, y, px + c, raw[c:c + len(app.psearch)],
+                    curses.color_pair(theme.C_MSG) | curses.A_BOLD
+                    | curses.A_REVERSE, max(0, pw - c))
+
+
 def draw_preview(stdscr, app, w, tree_w, body_h):
     """Divider + preview pane: title, underline, file/diff body."""
     bd = curses.color_pair(theme.C_BORDER)
@@ -394,11 +462,15 @@ def draw_preview(stdscr, app, w, tree_w, body_h):
     else:
         lines = app.preview_lines(node)
         total = len(lines)
+    # markdown pretty-render: only for real .md files, not in diff mode
+    md_on = (not app.changes and node and not node.is_dir
+             and app.md_render and not app.diff_mode
+             and markdown.is_markdown(node.name))
     app.pscroll = max(0, min(app.pscroll, max(0, total - body_h + 2)))
     if app.changes:
         x = px
         if app.focus == "preview":
-            put(stdscr, 1, x, "▶ ",
+            put(stdscr, 1, x, FOCUS_SYM + " ",
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD)
             x += 2
         put(stdscr, 1, x,
@@ -407,7 +479,7 @@ def draw_preview(stdscr, app, w, tree_w, body_h):
     elif node:
         x = px
         if app.focus == "preview":
-            put(stdscr, 1, x, "▶ ",
+            put(stdscr, 1, x, FOCUS_SYM + " ",
                 curses.color_pair(theme.C_MSG) | curses.A_BOLD)
             x += 2
         cls = icons.classify(node.name, node.is_dir,
@@ -418,8 +490,11 @@ def draw_preview(stdscr, app, w, tree_w, body_h):
                   if theme.ICON_PAIRS
                   else curses.color_pair(theme.C_TITLE))
         put(stdscr, 1, x, t_icon, i_attr, pw)
+        tag = ("  [diff]" if app.diff_mode
+               else "  [reading]" if md_on
+               else "  [raw]" if markdown.is_markdown(node.name) else "")
         put(stdscr, 1, x + cells(t_icon),
-            node.rel + ("  [diff]" if app.diff_mode else ""),
+            node.rel + tag,
             curses.color_pair(theme.C_TITLE) | curses.A_BOLD,
             pw - cells(t_icon) - (x - px))
     # title underline, connected to the divider and the right border
@@ -431,6 +506,10 @@ def draw_preview(stdscr, app, w, tree_w, body_h):
         pass
     if app.changes:
         draw_pretty_diff(stdscr, app, rows_data, px, pw, body_h)
+    if md_on:
+        draw_markdown(stdscr, app, lines, px, pw, body_h)
+        draw_scrollbar(stdscr, w - 2, 3, body_h - 2, total, app.pscroll)
+        return
     lang = (syntax.detect(node.name)
             if not app.changes and node and not node.is_dir else None)
     sel_range = sorted(app.psel) if app.psel else None
@@ -547,6 +626,18 @@ def draw(stdscr, app):
         # so a long repo/branch name paints over it instead of being holed
         put(stdscr, 0, tree_w + 1, "┬", curses.color_pair(theme.C_BORDER))
     draw_header(stdscr, w, left, right, badge)
+    # header/title changed: force a full physical rewrite of the top rows.
+    # Some terminals (Warp) mis-track cell widths across the minimal diffs
+    # curses emits for these rows, leaving crunched fragments behind.
+    node = app.selected()
+    chrome = (left, right, badge, node.rel if node else None, app.focus)
+    if chrome != getattr(app, "_chrome_prev", None):
+        app._chrome_prev = chrome
+        if hasattr(stdscr, "redrawln"):
+            try:
+                stdscr.redrawln(0, 2)
+            except curses.error:
+                pass
     if app.sel < app.scroll:
         app.scroll = app.sel
     if app.sel >= app.scroll + body_h:
