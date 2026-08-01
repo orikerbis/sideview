@@ -328,6 +328,27 @@ def test_commit_ai_cursor_agent_fallback():
           and msg != "feat: shiny thing")
 
 
+def test_full_repaint_on_resize():
+    """A window-size change must schedule a clear-and-repaint (clearok):
+    terminals that reflow on resize (Warp panes) otherwise keep ghost
+    fragments of old headers in cells curses believes are unchanged."""
+    from sideview_tui import ui
+    app, win = draw_fixture("main")
+    curses.color_pair = lambda n: 0
+    curses.curs_set = lambda n: 0
+    calls = []
+    win.clearok = lambda flag: calls.append(flag)
+    ui.draw(win, app)
+    check("first draw schedules full repaint", calls == [True])
+    calls.clear()
+    ui.draw(win, app)
+    check("same size: no forced repaint", not calls)
+    win.h, win.w = win.h, win.w - 10
+    win.erase()
+    ui.draw(win, app)
+    check("width change schedules full repaint", calls == [True])
+
+
 def test_guides_cached_in_build_visible():
     """Indent guides are computed once per build_visible (65% of frame time
     when recomputed per frame) and draw() renders from the cache."""
@@ -369,6 +390,7 @@ def main():
     test_markdown_preview_drawn()
     test_gui_editor_opens_without_suspend()
     test_commit_ai_cursor_agent_fallback()
+    test_full_repaint_on_resize()
     test_guides_cached_in_build_visible()
     print()
     if FAILURES:

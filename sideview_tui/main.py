@@ -311,6 +311,13 @@ def _loop(stdscr, app):
             for ev in getmouse_event() or []:
                 handle_mouse(stdscr, app, ev)
             continue
+        if ch == curses.KEY_RESIZE:
+            # the terminal reflowed its grid (Warp panes do on resize), so
+            # what's on screen no longer matches curses' model and minimal
+            # diffs would leave ghost fragments — repaint from scratch
+            curses.update_lines_cols()
+            stdscr.clearok(True)
+            continue
         if ch == 27:
             ev = read_escape(stdscr)
             if isinstance(ev, dict):

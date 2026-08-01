@@ -612,6 +612,12 @@ def draw(stdscr, app):
         draw_help(stdscr, app)
         return
     h, w = stdscr.getmaxyx()
+    if (h, w) != getattr(app, "_last_hw", None):
+        # size changed (KEY_RESIZE may never arrive in some terminals):
+        # the terminal likely reflowed, so force a full physical repaint
+        app._last_hw = (h, w)
+        if hasattr(stdscr, "clearok"):
+            stdscr.clearok(True)
     stdscr.erase()
     # paint the dark background explicitly: wbkgd() merges its color pair
     # into every cell on some ncurses builds, flattening per-cell colors
